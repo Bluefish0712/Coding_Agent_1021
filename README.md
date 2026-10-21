@@ -16,7 +16,9 @@ Copy-Item .env.example .env
 # 编辑 .env 填入 DEEPSEEK_API_KEY
 python -m personal_agent.cli doctor
 pytest
+# 配置 .env 后的真实 API 冒烟测试
+python -m personal_agent.cli chat "用一句话说明什么是 Agent Loop"
 ```
 
-Phase 0 的目标是确认配置和测试链路可用；Agent Loop 与工具将在后续阶段实现。
+Phase 1 当前已完成 DeepSeek 普通文本调用客户端和 tool calling 响应解析；Agent Loop 与工具执行将在下一步实现。
 
