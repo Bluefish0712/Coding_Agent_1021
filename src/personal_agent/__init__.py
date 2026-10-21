@@ -1,0 +1,2 @@
+"""Personal DeepSeek coding agent."""
+
