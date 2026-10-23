@@ -523,7 +523,52 @@ for _ in range(self.max_turns):
 - 异常和错误结果的区别
 - 为什么模型只负责建议，程序负责执行
 
-### 7.8 本课练习
+### 7.8 实际运行实验：`chat` 和 `agent` 的区别
+
+同一个问题使用两个命令会得到不同结果：
+
+```powershell
+python -m personal_agent.cli chat "现在是什么时间？"
+```
+
+这个命令可能回答“无法获取实时时钟”，这是正常的。`chat` 命令只发送普通消息：
+
+```text
+用户输入
+→ DeepSeek
+→ 普通文本
+```
+
+它没有传入 `get_time` 工具，也没有启动 Agent Loop，因此模型不能访问本地系统时钟。
+
+而下面的命令会启动工具循环：
+
+```powershell
+python -m personal_agent.cli agent "What time is it?"
+```
+
+运行流程是：
+
+```text
+用户问题
+→ DeepSeek 请求 get_time
+→ 本地 Python 执行 datetime.now()
+→ 工具结果返回 DeepSeek
+→ DeepSeek 生成最终答案
+```
+
+这次实验说明了一个核心区别：
+
+```text
+chat  = 直接调用模型
+agent = 模型 + 工具 + 循环
+```
+
+模型本身并没有实时读取电脑时钟的能力。实时信息来自本地工具，模型只是决定“需要调用这个工具”，并负责解释工具返回的结果。
+
+中文和英文提示词在本课中都可以使用。英文提示只是可能更容易触发模型选择工具；真正决定 Agent 能力的是是否使用 `agent` 命令并传入工具 Schema。
+
+### 7.9 本课练习
 
 建议独立完成以下练习，再进入第二课：
 
@@ -663,5 +708,5 @@ Reviewer：检查 diff
 | 第六课 | 权限和 Hooks | 等待通知 |
 | 后续 | 任务、恢复、Subagent、桌面助手 | 未开始 |
 
-最后更新：第一课完成后。
+最后更新：第一课实际运行实验完成后。
 
