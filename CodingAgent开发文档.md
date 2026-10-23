@@ -386,11 +386,192 @@ for _ in range(max_turns):
 
 这个实验可以在不涉及文件修改和 Shell 安全的情况下，完整理解 Agent Loop。
 
-## 7. 后续开发阶段
+## 7. 第一课：最小 Agent Loop + `get_time` 假工具
 
-### Phase 2：最小 Coding Agent
+状态：已完成。
 
-目标：完成“读取代码—修改文件—运行测试”的闭环。
+### 7.1 本课目标
+
+本课只引入一个 Agent 机制：模型可以请求工具，程序执行工具，再把结果交回模型。
+
+本课没有引入文件系统、Shell、权限或复杂工具注册系统。这样做是为了先把 Agent 的最核心循环理解清楚。
+
+新增文件：
+
+```text
+src/personal_agent/agent_loop.py
+tests/test_agent_loop.py
+```
+
+新增 CLI 命令：
+
+```powershell
+python -m personal_agent.cli agent "What time is it?"
+```
+
+### 7.2 Agent Loop 的运行过程
+
+```text
+第一次请求
+  用户消息
+      ↓
+  DeepSeek 返回 tool_calls: get_time
+      ↓
+本地程序
+  解析工具名和 arguments
+      ↓
+  执行 get_time()
+      ↓
+  生成 role=tool 消息
+      ↓
+第二次请求
+  用户消息 + assistant tool_calls + tool result
+      ↓
+  DeepSeek 返回最终文本
+```
+
+关键点是：模型不会直接执行 Python 函数。模型只能提出一个结构化请求，真正执行动作的是本地程序。
+
+### 7.3 `agent_loop.py` 代码导读
+
+`ToolHandler` 是工具函数的统一类型：
+
+```python
+ToolHandler = Callable[[dict[str, Any]], str]
+```
+
+这表示工具接收一个字典参数，返回一个字符串结果。现在只有 `get_time`，未来文件工具、搜索工具也会遵守类似的调用边界。
+
+`GET_TIME_TOOL` 是发送给模型的工具 Schema。它告诉模型三件事：
+
+- 工具叫 `get_time`
+- 工具可以做什么
+- 工具需要什么参数
+
+Schema 是给模型看的“工具说明书”，而 `self.tools` 是程序真正执行的“工具实现”：
+
+```python
+self.tools = {"get_time": get_time}
+self.tool_schemas = [GET_TIME_TOOL]
+```
+
+这两个对象现在并存，是因为模型需要描述，程序需要函数。后续第二课会把它们整理成更清晰的 Tool Registry。
+
+`run()` 是最小循环：
+
+1. 创建初始 `messages`。
+2. 调用 `client.chat()`。
+3. 将 assistant 消息加入历史。
+4. 没有 `tool_calls` 时返回文本。
+5. 有 `tool_calls` 时逐个执行工具。
+6. 将工具结果以 `role=tool` 追加到历史。
+7. 进入下一轮。
+
+工具结果必须携带原始的 `tool_call_id`：
+
+```python
+{
+    "role": "tool",
+    "tool_call_id": call["id"],
+    "content": result,
+}
+```
+
+它是模型把“请求”和“结果”配对的标识。如果没有它，多工具调用或多轮调用时模型可能无法判断哪个结果对应哪个请求。
+
+### 7.4 为什么需要最大轮数
+
+模型可能反复调用工具，或者因为错误结果一直尝试。`max_turns` 是程序侧的安全保险：
+
+```python
+for _ in range(self.max_turns):
+```
+
+达到上限后抛出错误，而不是无限消耗 API 配额。当前默认值是 8，后续会把它做成配置项。
+
+### 7.5 错误处理
+
+当前工具实验处理三类问题：
+
+- 未知工具：返回 `tool error`
+- arguments 不是合法 JSON：返回 `tool error`
+- 超过最大轮数：抛出 `DeepSeekError`
+
+这里暂时把工具错误作为结果回传给模型，而不是立即终止。原因是模型可能根据错误信息选择另一种行动。这是 Agent 与普通函数调用的重要区别。
+
+### 7.6 测试设计
+
+新增测试验证：
+
+- 第一次响应包含工具调用
+- 程序确实执行 `get_time`
+- 第二次请求包含 `role=tool`
+- `tool_call_id` 能正确配对
+- 第二次响应的最终文本能返回给用户
+- Agent 达到最大轮数后会停止
+
+测试仍然使用 `httpx.MockTransport`，所以不需要真实 API，也不会产生费用。
+
+### 7.7 需要掌握的知识
+
+- Python `for` 循环和循环终止
+- 字典、列表和 JSON 字符串
+- 函数作为值保存到字典中
+- `Callable` 类型标注
+- 消息协议中的 `role`
+- 工具调用 ID 的关联关系
+- 异常和错误结果的区别
+- 为什么模型只负责建议，程序负责执行
+
+### 7.8 本课练习
+
+建议独立完成以下练习，再进入第二课：
+
+1. 把 `get_time` 改为返回 UTC 时间。
+2. 增加一个 `get_date` 工具。
+3. 让 Agent 同时处理两个 tool calls。
+4. 为未知工具增加测试。
+5. 将 `max_turns` 改为命令行参数。
+
+## 8. 后续开发阶段
+
+### 第二课：Tool Registry
+
+对应参考项目：`learn-claude-code/s02_tool_use`。
+
+目标：把工具名称、Schema、处理函数和错误处理统一管理。
+
+本课完成后，再开始添加真实文件工具。
+
+### 第三课：只读文件工具
+
+目标：添加 `list_directory`、`read_file`、`search_text`。
+
+### 第四课：文件修改工具
+
+目标：添加 `write_file` 和 `apply_patch`，学习修改风险和 Git diff。
+
+### 第五课：命令和测试工具
+
+目标：添加 `run_command`、`run_tests`、`git_diff`，完成第一次代码修复闭环。
+
+### 第六课：权限和 Hooks
+
+对应参考项目：`s03_permission`、`s04_hooks`。
+
+目标：加入工作区保护、危险操作审批、超时、输出限制和执行前后钩子。
+
+### 后续阶段
+
+以下内容等用户明确通知后再继续：
+
+- 任务和上下文管理
+- 会话恢复
+- Subagent
+- Agent Team
+- 桌面工作助手
+
+原先的工具计划仍保留在这里作为长期方向，但不会提前实现。
 
 计划工具：
 
@@ -474,11 +655,13 @@ Reviewer：检查 diff
 |---|---|---|
 | Phase 0 | 环境、虚拟环境、Git、配置 | 已完成 |
 | Phase 1 | DeepSeek 普通调用和 tool call 解析 | 已完成 |
-| Phase 2 | Agent Loop 和假工具实验 | 进行中 |
-| Phase 3 | 文件、搜索、命令、测试工具 | 未开始 |
-| Phase 4 | 权限、审批和工作区保护 | 未开始 |
-| Phase 5 | 任务、恢复和上下文管理 | 未开始 |
-| Phase 6 | 有限职责 Subagents | 未开始 |
+| 第一课 | Agent Loop 和 `get_time` 假工具 | 已完成 |
+| 第二课 | Tool Registry | 等待通知 |
+| 第三课 | 只读文件工具 | 等待通知 |
+| 第四课 | 文件修改工具 | 等待通知 |
+| 第五课 | 命令、测试和 Git diff | 等待通知 |
+| 第六课 | 权限和 Hooks | 等待通知 |
+| 后续 | 任务、恢复、Subagent、桌面助手 | 未开始 |
 
-最后更新：Phase 1 完成后。
+最后更新：第一课完成后。
 

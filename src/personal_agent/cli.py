@@ -5,6 +5,7 @@ import sys
 
 from .config import load_settings
 from .deepseek_client import DeepSeekClient, DeepSeekError
+from .agent_loop import AgentLoop
 
 
 def doctor() -> int:
@@ -30,17 +31,36 @@ def chat(prompt: str) -> int:
     return 0
 
 
+def agent(prompt: str) -> int:
+    settings = load_settings()
+    try:
+        client = DeepSeekClient(settings)
+        try:
+            answer = AgentLoop(client).run(prompt)
+        finally:
+            client.close()
+    except (DeepSeekError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(answer)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="coding-agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("doctor", help="check local Phase 0 configuration")
     chat_parser = subparsers.add_parser("chat", help="send one prompt to DeepSeek")
     chat_parser.add_argument("prompt")
+    agent_parser = subparsers.add_parser("agent", help="run the first tool-enabled agent loop")
+    agent_parser.add_argument("prompt")
     args = parser.parse_args()
     if args.command == "doctor":
         return doctor()
     if args.command == "chat":
         return chat(args.prompt)
+    if args.command == "agent":
+        return agent(args.prompt)
     return 2
 
 
