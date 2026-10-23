@@ -578,7 +578,172 @@ agent = 模型 + 工具 + 循环
 4. 为未知工具增加测试。
 5. 将 `max_turns` 改为命令行参数。
 
-## 8. 后续开发阶段
+## 8. 第二课：Tool Registry
+
+状态：已完成。
+
+### 8.1 本课目标
+
+第一课把 `get_time` 的 Schema、处理函数和工具映射暂时放在 `agent_loop.py` 中。这样适合学习最小循环，但工具数量增加后会出现问题：
+
+- Agent Loop 会越来越长
+- 每添加一个工具都要修改核心循环
+- 工具 Schema 和真实函数容易不一致
+- 工具错误处理会重复
+
+第二课把这些职责移动到 `ToolRegistry`：
+
+```text
+ToolDefinition
+  ├─ name
+  ├─ schema
+  └─ handler
+
+ToolRegistry
+  ├─ register()
+  ├─ schemas()
+  └─ execute_call()
+```
+
+### 8.2 新增文件
+
+```text
+src/personal_agent/tools/__init__.py
+src/personal_agent/tools/clock.py
+src/personal_agent/tools/registry.py
+tests/test_tool_registry.py
+```
+
+### 8.3 数据流变化
+
+第一课：
+
+```text
+AgentLoop
+  ├─ 保存工具 Schema
+  ├─ 保存工具函数
+  ├─ 解析 JSON 参数
+  └─ 执行工具
+```
+
+第二课：
+
+```text
+AgentLoop
+  ├─ 向 Registry 索取 schemas
+  └─ 向 Registry 请求 execute_call
+
+ToolRegistry
+  ├─ 管理工具定义
+  ├─ 解析 arguments
+  ├─ 检查工具是否存在
+  └─ 执行 handler
+```
+
+核心变化是：Agent Loop 现在只关心“模型要求调用工具”，不关心具体工具如何实现。
+
+### 8.4 `ToolDefinition`
+
+```python
+@dataclass(frozen=True)
+class ToolDefinition:
+    name: str
+    schema: dict[str, Any]
+    handler: ToolHandler
+```
+
+它把一个工具的三个组成部分放在一起：
+
+```text
+名称：程序识别它
+Schema：模型理解它
+Handler：程序执行它
+```
+
+注册时会检查名称是否一致：
+
+```python
+schema_name = definition.schema.get("function", {}).get("name")
+if schema_name != definition.name:
+    raise ValueError(...)
+```
+
+这是一个重要的防御性检查。如果 Schema 叫 `read_file`，但注册名叫 `readfile`，模型和程序就会产生分歧。
+
+### 8.5 `ToolRegistry`
+
+注册工具：
+
+```python
+registry.register(definition)
+```
+
+提供给模型的工具列表：
+
+```python
+registry.schemas()
+```
+
+执行模型请求：
+
+```python
+registry.execute_call(call)
+```
+
+未知工具和无效参数不会让主循环崩溃，而是返回标准化的 `tool error` 字符串，交给模型继续判断。
+
+### 8.6 为什么现在可以添加第二个工具
+
+不需要再修改 `AgentLoop` 的循环逻辑，只需要：
+
+1. 编写工具函数。
+2. 编写工具 Schema。
+3. 创建 `ToolDefinition`。
+4. 注册到 `ToolRegistry`。
+
+这体现了“开放扩展、封闭修改”的思想：工具集合可以扩展，核心循环不必反复改动。
+
+### 8.7 需要掌握的知识
+
+- `dataclass`
+- `Callable`：函数作为参数和对象保存
+- 字典作为注册表
+- 模块和包的拆分
+- Schema 与实现的对应关系
+- 单一职责
+- 开放封闭原则
+- 集中式错误处理
+
+### 8.8 第二课测试
+
+新增测试验证：
+
+- Registry 能暴露工具 Schema
+- Registry 能执行对应 handler
+- 不能重复注册同名工具
+- Schema 名称和注册名称必须一致
+- 未知工具返回错误
+- 无效参数返回错误
+
+当前测试结果：
+
+```text
+9 passed
+```
+
+### 8.9 第二课练习
+
+在不修改 `AgentLoop` 的前提下，尝试增加一个 `get_date` 工具：
+
+1. 在 `tools/clock.py` 编写函数。
+2. 添加对应 Schema。
+3. 创建 `ToolDefinition`。
+4. 注册到默认 Registry。
+5. 为 Registry 增加测试。
+
+完成后再进入第三课。
+
+## 9. 后续开发阶段
 
 ### 第二课：Tool Registry
 
@@ -701,7 +866,7 @@ Reviewer：检查 diff
 | Phase 0 | 环境、虚拟环境、Git、配置 | 已完成 |
 | Phase 1 | DeepSeek 普通调用和 tool call 解析 | 已完成 |
 | 第一课 | Agent Loop 和 `get_time` 假工具 | 已完成 |
-| 第二课 | Tool Registry | 等待通知 |
+| 第二课 | Tool Registry | 已完成 |
 | 第三课 | 只读文件工具 | 等待通知 |
 | 第四课 | 文件修改工具 | 等待通知 |
 | 第五课 | 命令、测试和 Git diff | 等待通知 |
