@@ -8,10 +8,11 @@ from .tools.clock import GET_TIME_SCHEMA, get_time
 from .tools.filesystem import create_filesystem_tools
 from .tools.command import create_command_tools
 from .tools.registry import ToolDefinition, ToolRegistry
+from .tools.permissions import PermissionPolicy
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
@@ -19,7 +20,7 @@ class AgentLoop:
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
         default_tools.extend(create_command_tools(workspace or Path.cwd()))
-        self.registry = registry or ToolRegistry(default_tools)
+        self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_input}]

@@ -6,6 +6,7 @@ import sys
 from .config import load_settings
 from .deepseek_client import DeepSeekClient, DeepSeekError
 from .agent_loop import AgentLoop
+from .tools.permissions import PermissionPolicy
 
 
 def doctor() -> int:
@@ -36,7 +37,11 @@ def agent(prompt: str) -> int:
     try:
         client = DeepSeekClient(settings)
         try:
-            answer = AgentLoop(client).run(prompt)
+            def approve(tool_name: str, arguments: dict) -> bool:
+                details = f"{tool_name}({arguments})"
+                return input(f"Allow tool {details}? [y/N] ").strip().lower() in {"y", "yes"}
+
+            answer = AgentLoop(client, permission_policy=PermissionPolicy(approve)).run(prompt)
         finally:
             client.close()
     except (DeepSeekError, ValueError) as exc:

@@ -1258,3 +1258,86 @@ python -m personal_agent.cli agent "请运行一个一定会失败的测试命�
 
 测试时不要让 Agent 执行删除文件、修改系统设置或访问工作区外的命令；这些行为要等第六课加入权限机制后再测试。
 
+## 17. 第六课：权限和 Hooks
+
+状态：已完成。
+
+### 17.1 本课目标
+
+第五课之后，Agent 已经可以执行命令，但“模型提出工具调用”不应该等于“工具一定执行”。第六课把工具执行流程改为：
+
+```text
+模型提出工具调用
+    ↓
+解析参数
+    ↓
+PermissionPolicy 权限判断
+    ↓
+before hooks
+    ↓
+执行工具
+    ↓
+after hooks / error hooks
+    ↓
+把结果返回模型
+```
+
+这次没有把权限判断写进 `AgentLoop`，因为 AgentLoop 只应该负责对话循环。权限属于工具调度层，所以放在 `ToolRegistry.execute_call()` 中。
+
+### 17.2 权限策略
+
+文件位置：`src/personal_agent/tools/permissions.py`。
+
+当前策略把以下工具视为高风险：
+
+```text
+write_file
+apply_patch
+run_command
+run_tests
+```
+
+只读工具默认允许；高风险工具需要 `approval_callback` 返回 `True`。如果没有审批回调，高风险工具默认拒绝，这是一种 fail closed（失败时关闭权限）的安全默认值。
+
+CLI 中的 `agent` 命令会在执行高风险工具前显示：
+
+```text
+Allow tool run_tests({})? [y/N]
+```
+
+输入 `y` 或 `yes` 才会继续，其他输入都拒绝。
+
+### 17.3 Hooks
+
+`ToolRegistry` 现在支持三类 Hooks：
+
+- `before_hooks`：工具执行前调用，可用于日志、审计或后续更细的拦截。
+- `after_hooks`：工具成功执行后调用，可用于记录耗时、结果状态等。
+- `error_hooks`：权限拒绝、参数错误或工具异常时调用，可用于错误统计和诊断。
+
+Hook 接收工具名和参数，但当前不修改参数，也不替代权限策略。这样先把生命周期事件抽象出来，后续可以继续增加日志、计时和重试机制。
+
+### 17.4 第六课自测命令
+
+只读工具不需要确认：
+
+```powershell
+python -m personal_agent.cli agent "请读取 README.md，并告诉我项目当前完成到哪一课。"
+```
+
+运行测试时会出现确认提示：
+
+```powershell
+python -m personal_agent.cli agent "请运行项目测试，并告诉我测试结果。"
+```
+
+输入 `y` 允许执行；输入 `n` 或直接回车，观察 Agent 如何处理权限拒绝。
+
+文件修改也会要求确认：
+
+```powershell
+python -m personal_agent.cli agent "请在当前项目创建一个 lesson6_probe.txt，内容写入 permission test。"
+```
+
+本课仍然不要批准删除文件、修改系统设置、访问工作区外路径或未知网络命令。当前审批是工具级别的第一版，后续还要加入命令分类、路径校验和更细粒度规则。
+
