@@ -1341,3 +1341,15 @@ python -m personal_agent.cli agent "请在当前项目创建一个 lesson6_probe
 
 本课仍然不要批准删除文件、修改系统设置、访问工作区外路径或未知网络命令。当前审批是工具级别的第一版，后续还要加入命令分类、路径校验和更细粒度规则。
 
+### 17.5 第六课修正版：从工具级审批到命令级防护
+
+第一次实测暴露了一个问题：仅仅询问“是否允许 `run_tests`”还不够，因为模型可能把 Linux 命令、Shell 链接或删除命令放进 `run_tests` 的参数里。因此本次修正版补充了三层保护：
+
+1. `run_tests` 只接受以 `python -m pytest` 开头的命令，不再是任意命令执行器。
+2. `run_command` 和 `run_tests` 对 `del`、`rmdir`、`rm`、`sudo`、`shutdown`、`format` 等危险命令做硬拒绝，即使用户审批回调返回允许也不会执行。
+3. 拒绝 `/workspace`、`/dev/`、`2>/dev/null`、`tail` 等明显 Linux 专用路径或语法，避免模型把其他运行环境的命令直接带到 Windows 项目中。
+
+`git_diff` 也不再把路径直接拼接进 Shell 字符串，而是先限制路径必须位于 workspace，再使用参数列表调用 Git，减少路径注入风险。
+
+这次修正对应参考项目中更完整的 s03 Permission：有硬拒绝、规则匹配和用户审批；当前 Hooks 则是 s04 的基础版。它还没有进入 s05 TodoWrite。
+

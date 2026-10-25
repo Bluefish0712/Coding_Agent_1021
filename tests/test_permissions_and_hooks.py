@@ -32,3 +32,21 @@ def test_approval_and_hooks_wrap_tool_execution():
 def test_read_only_tool_is_allowed_by_default():
     registry = ToolRegistry([ToolDefinition("read_file", schema("read_file"), lambda _: "content")])
     assert registry.execute_call(call("read_file")) == "content"
+
+
+def test_destructive_command_is_hard_denied_before_approval():
+    registry = ToolRegistry(
+        [ToolDefinition("run_command", schema("run_command"), lambda _: "must not run")],
+        permission_policy=PermissionPolicy(lambda *_: True),
+    )
+    result = registry.execute_call(call("run_command", '{"command":"rmdir /s /q temp"}'))
+    assert "destructive" in result
+
+
+def test_linux_shell_command_is_hard_denied():
+    registry = ToolRegistry(
+        [ToolDefinition("run_tests", schema("run_tests"), lambda _: "must not run")],
+        permission_policy=PermissionPolicy(lambda *_: True),
+    )
+    result = registry.execute_call(call("run_tests", '{"command":"cd /workspace; python -m pytest | tail -60"}'))
+    assert "Linux-only" in result

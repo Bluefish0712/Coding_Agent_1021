@@ -60,7 +60,8 @@ class ToolRegistry:
             if not isinstance(arguments, dict):
                 return "tool error: arguments must be a JSON object"
             if not self.permission_policy.allow(name, arguments):
-                message = f"permission denied for tool {name!r}"
+                reason = self.permission_policy.hard_deny_reason(name, arguments)
+                message = reason or f"permission denied for tool {name!r}"
                 self._run_hooks(self.error_hooks, name, arguments)
                 return f"tool error: {message}"
             self._run_hooks(self.before_hooks, name, arguments)

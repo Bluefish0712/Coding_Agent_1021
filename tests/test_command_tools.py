@@ -14,9 +14,13 @@ def test_run_command_returns_exit_code_and_output(tmp_path):
 
 
 def test_run_tests_uses_requested_test_command(tmp_path):
-    result = handlers(tmp_path)["run_tests"]({"command": "python -c \"print('tests ok')\""})
-    assert "exit_code: 0" in result
-    assert "tests ok" in result
+    result = handlers(tmp_path)["run_tests"]({"command": "python -m pytest --version"})
+    assert "exit_code:" in result
+
+
+def test_run_tests_rejects_arbitrary_command(tmp_path):
+    result = handlers(tmp_path)["run_tests"]({"command": "python -c \"print('not a test')\""})
+    assert "only accepts" in result
 
 
 def test_run_command_timeout_is_reported(tmp_path):
