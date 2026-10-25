@@ -57,6 +57,31 @@ def create_filesystem_tools(workspace: Path) -> list[ToolDefinition]:
                 continue
         return "\n".join(matches) or "(no matches)"
 
+    def write_file(args: dict[str, Any]) -> str:
+        path = _resolve(workspace, args["path"])
+        content = str(args["content"])
+        overwrite = bool(args.get("overwrite", False))
+        if path.exists() and not overwrite:
+            raise ValueError("file exists; set overwrite=true to replace it")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+        return f"wrote {len(content)} characters to {path.relative_to(workspace)}"
+
+    def apply_patch(args: dict[str, Any]) -> str:
+        path = _resolve(workspace, args["path"])
+        if not path.is_file():
+            raise ValueError("path is not a file")
+        current = path.read_text(encoding="utf-8", errors="replace")
+        old_text = str(args["old_text"])
+        new_text = str(args["new_text"])
+        occurrences = current.count(old_text)
+        if occurrences == 0:
+            raise ValueError("old_text was not found")
+        if occurrences > 1:
+            raise ValueError("old_text matched more than once")
+        path.write_text(current.replace(old_text, new_text, 1), encoding="utf-8")
+        return f"patched {path.relative_to(workspace)}"
+
     return [
         ToolDefinition("list_directory", {
             "type": "function", "function": {"name": "list_directory", "description": "List entries in a workspace directory.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "additionalProperties": False}},
@@ -67,5 +92,11 @@ def create_filesystem_tools(workspace: Path) -> list[ToolDefinition]:
         ToolDefinition("search_text", {
             "type": "function", "function": {"name": "search_text", "description": "Search text in workspace files.", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "path": {"type": "string"}}, "required": ["query"], "additionalProperties": False}},
         }, search_text),
+        ToolDefinition("write_file", {
+            "type": "function", "function": {"name": "write_file", "description": "Create or overwrite a UTF-8 text file in the workspace.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}, "overwrite": {"type": "boolean"}}, "required": ["path", "content"], "additionalProperties": False}},
+        }, write_file),
+        ToolDefinition("apply_patch", {
+            "type": "function", "function": {"name": "apply_patch", "description": "Replace one unique text fragment in a workspace file.", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}}, "required": ["path", "old_text", "new_text"], "additionalProperties": False}},
+        }, apply_patch),
     ]
 

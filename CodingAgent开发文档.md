@@ -965,11 +965,89 @@ python -m personal_agent.cli agent "自然语言任务"
 
 每课文档必须记录：实际命令、模型是否调用预期工具、工具返回是否正确、最终结果是否符合预期、失败时发生了什么。
 
-## 13. 后续开发阶段
+## 13. 第四课：文件修改工具
 
-### 第四课：文件修改工具
+状态：已完成。
 
-目标：添加 `write_file` 和 `apply_patch`，学习修改风险和 Git diff。
+### 13.1 本课目标
+
+第三课让 Agent 能观察工作区，本课增加最小的修改能力：
+
+```text
+write_file
+apply_patch
+```
+
+现在 Agent 开始具备：
+
+```text
+观察 → 修改
+```
+
+测试执行和自动修复要到第五课再加入。
+
+### 13.2 `write_file`
+
+`write_file` 用于创建新文件，或者在显式设置 `overwrite=true` 时覆盖已有文件。默认拒绝覆盖，以避免模型无意中替换原文件。
+
+写入前仍然经过 `_resolve()`，因此不能写到 workspace 外部。
+
+### 13.3 `apply_patch`
+
+本课的 `apply_patch` 采用“唯一文本替换”模型：
+
+```json
+{
+  "path": "hello.py",
+  "old_text": "x = 1",
+  "new_text": "x = 2"
+}
+```
+
+程序会检查文件存在、旧文本能找到且只出现一次；如果匹配不到或匹配到多处，就拒绝修改。这比直接让模型提交整份文件更容易检查修改范围。
+
+### 13.4 为什么先实现两种修改方式
+
+`write_file` 适合创建新文件或完整重写小文件；`apply_patch` 适合只修改已有代码中的一个片段并保留其余内容。本课暂不引入完整 unified diff 解析器，先理解“修改前内容必须唯一匹配”。
+
+### 13.5 当前限制
+
+本课还没有用户审批、Git diff 展示、自动备份、回滚、Shell 测试和删除文件。权限、审批和验证会在第六课及后续课程中补充。
+
+### 13.6 需要掌握的知识
+
+- `Path.write_text`
+- 文件覆盖风险
+- 字符串 `count()` 和 `replace()`
+- 唯一匹配
+- 修改工具为什么必须返回明确结果
+- 观察、行动和验证的区别
+
+### 13.7 第四课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请创建一个 notes.txt 文件，内容写成：这是我的 Coding Agent 学习笔记。"
+```
+
+预期：模型调用 `write_file`，项目目录中出现 `notes.txt`。
+
+```powershell
+python -m personal_agent.cli agent "请读取 README.md，然后把其中的 Phase 0 改成 Phase 0（环境完成）。"
+```
+
+预期：模型先调用 `read_file`，再调用 `apply_patch`。测试后使用下面的命令检查修改：
+
+```powershell
+git diff -- README.md
+```
+
+```powershell
+python -m personal_agent.cli agent "请把 README.md 全部覆盖成 test。"
+```
+
+预期：工具默认拒绝覆盖已有文件。
+
+## 14. 后续开发阶段
 
 ### 第五课：命令和测试工具
 
@@ -1078,7 +1156,7 @@ Reviewer：检查 diff
 | 第一课 | Agent Loop 和 `get_time` 假工具 | 已完成 |
 | 第二课 | Tool Registry | 已完成 |
 | 第三课 | 只读文件工具 | 已完成 |
-| 第四课 | 文件修改工具 | 等待通知 |
+| 第四课 | 文件修改工具 | 已完成 |
 | 第五课 | 命令、测试和 Git diff | 等待通知 |
 | 第六课 | 权限和 Hooks | 等待通知 |
 | 后续 | 任务、恢复、Subagent、桌面助手 | 未开始 |
