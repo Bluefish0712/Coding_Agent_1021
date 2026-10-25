@@ -6,6 +6,7 @@ from pathlib import Path
 from .deepseek_client import DeepSeekClient, DeepSeekError
 from .tools.clock import GET_TIME_SCHEMA, get_time
 from .tools.filesystem import create_filesystem_tools
+from .tools.command import create_command_tools
 from .tools.registry import ToolDefinition, ToolRegistry
 
 
@@ -17,6 +18,7 @@ class AgentLoop:
         self.max_turns = max_turns
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
+        default_tools.extend(create_command_tools(workspace or Path.cwd()))
         self.registry = registry or ToolRegistry(default_tools)
 
     def run(self, user_input: str) -> str:

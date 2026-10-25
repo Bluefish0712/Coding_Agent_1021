@@ -1157,9 +1157,104 @@ Reviewer：检查 diff
 | 第二课 | Tool Registry | 已完成 |
 | 第三课 | 只读文件工具 | 已完成 |
 | 第四课 | 文件修改工具 | 已完成 |
-| 第五课 | 命令、测试和 Git diff | 等待通知 |
+| 第五课 | 命令、测试和 Git diff | 已完成 |
 | 第六课 | 权限和 Hooks | 等待通知 |
 | 后续 | 任务、恢复、Subagent、桌面助手 | 未开始 |
 
-最后更新：第一课实际运行实验完成后。
+最后更新：第五课完成后。
+
+## 16. 第五课：命令、测试和 Git diff
+
+状态：已完成。
+
+### 16.1 本课目标
+
+第四课让 Agent 能修改文件，本课增加修改后的验证能力：
+
+```text
+run_command
+run_tests
+git_diff
+```
+
+现在基本流程变成：
+
+```text
+观察 → 修改 → 执行 → 检查
+```
+
+这是 Coding Agent 第一个接近真实开发的闭环，但权限审批仍未加入。
+
+### 16.2 三个命令工具
+
+`run_command` 在 workspace 中执行命令并返回退出码、标准输出和错误输出，同时限制超时时间与输出长度。
+
+`run_tests` 是 `run_command` 的语义封装，默认运行：
+
+```text
+python -m pytest
+```
+
+`git_diff` 查看当前工作区修改，底层使用：
+
+```text
+git diff -- <path>
+```
+
+它们让 Agent 能够在修改后检查结果，但当前不会自动提交、回滚或推送。
+
+### 16.3 为什么需要退出码和超时
+
+模型不能只根据命令输出判断成功。命令可能打印内容但返回失败退出码，因此工具结果必须包含：
+
+```text
+exit_code
+stdout
+stderr
+```
+
+命令也可能卡住，所以当前默认超时 60 秒，最大允许 300 秒。输出默认限制 12,000 字符，避免错误日志占满上下文。
+
+### 16.4 安全说明
+
+本课首次允许模型执行命令，目前仍是学习版实现：
+
+- 使用 `shell=True`
+- 尚未拦截危险命令
+- 尚未加入用户审批
+- 尚未设置命令白名单
+- 尚未限制网络访问
+
+因此暂时只在自己的测试项目中使用。第六课再加入权限与 Hooks。
+
+### 16.5 需要掌握的知识
+
+- `subprocess.run`
+- 工作目录 `cwd`
+- stdout、stderr 和退出码
+- 子进程超时
+- Shell 命令风险
+- Git diff
+- 为什么测试结果是 Agent 的验证依据
+- 为什么模型声称成功不能替代程序验证
+
+### 16.6 第五课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请运行项目测试，并告诉我通过了多少个测试。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请查看当前 Git diff，并总结最近的代码修改。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请执行 python --version，并告诉我 Python 版本。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请运行一个一定会失败的测试命令，并解释退出码和错误输出。"
+```
+
+测试时不要让 Agent 执行删除文件、修改系统设置或访问工作区外的命令；这些行为要等第六课加入权限机制后再测试。
 
