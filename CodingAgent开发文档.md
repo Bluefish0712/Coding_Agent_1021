@@ -753,9 +753,132 @@ registry.execute_call(call)
 
 本课完成后，再开始添加真实文件工具。
 
-### 第三课：只读文件工具
+## 10. 第三课：只读文件工具
 
-目标：添加 `list_directory`、`read_file`、`search_text`。
+状态：已完成。
+
+### 10.1 本课目标
+
+在不修改文件、不执行命令的前提下，让 Agent 能观察代码工作区：
+
+```text
+list_directory
+read_file
+search_text
+```
+
+观察是 Coding Agent 的第一种真实能力。模型必须先看到代码，才有可能提出合理的修改方案。
+
+### 10.2 工作区概念
+
+第三课引入了 `workspace`：
+
+```text
+workspace = Agent 被允许观察的根目录
+```
+
+工具收到相对路径后，会把它解析到 workspace 内：
+
+```text
+用户提供 src/main.py
+→ workspace / src/main.py
+→ resolve()
+→ 检查是否仍在 workspace 内
+→ 执行读取
+```
+
+`../secret.txt` 会被拒绝。这不是完整权限系统，完整的审批和权限课程会放到第六课；但即使只读工具，也必须先建立最基本的边界。
+
+### 10.3 三个工具
+
+`list_directory` 返回目录条目，目录用 `/` 标记。
+
+`read_file` 读取 UTF-8 文本，并限制默认最大字符数，避免一次把超大文件全部放进上下文。
+
+`search_text` 递归搜索文本文件，返回：
+
+```text
+相对路径:行号:匹配行
+```
+
+搜索结果最多返回 100 条，避免工具结果无限增长。
+
+### 10.4 为什么只读工具先于修改工具
+
+Coding Agent 的基本循环是：
+
+```text
+观察 → 推理 → 行动 → 验证
+```
+
+第三课只实现“观察”。这样可以先学习：
+
+- 工具如何接收参数
+- 工具如何返回结果
+- 工具结果如何进入上下文
+- 路径如何解析
+- 大结果如何限制
+
+如果一开始就加入写文件和 Shell，观察、修改、安全和回滚会同时出现，难以判断问题来自哪一层。
+
+### 10.5 代码组织
+
+新增：
+
+```text
+src/personal_agent/tools/filesystem.py
+tests/test_filesystem_tools.py
+```
+
+`filesystem.py` 通过 `create_filesystem_tools(workspace)` 创建工具定义，因此工具函数可以绑定不同 workspace，而不需要依赖全局变量。
+
+AgentLoop 默认注册：
+
+```text
+get_time
+list_directory
+read_file
+search_text
+```
+
+AgentLoop 本身仍然不包含这些工具的实现，只从 Registry 获取 Schema 并执行调用。
+
+### 10.6 需要掌握的知识
+
+- `pathlib.Path`
+- `resolve()` 和相对路径
+- `relative_to()` 的边界检查
+- 目录遍历和递归遍历
+- 文件编码与 `errors="replace"`
+- 文本结果截断
+- 为什么上下文大小是 Agent 的资源
+- 观察权限和修改权限的区别
+
+### 10.7 测试结果
+
+新增测试验证：
+
+- 目录列表
+- 文件读取
+- 文本搜索
+- 相对路径输出
+- 工作区外路径拒绝
+
+当前测试结果：
+
+```text
+11 passed
+```
+
+### 10.8 第三课练习
+
+1. 让 `list_directory` 支持只返回文件。
+2. 让 `read_file` 返回行号。
+3. 让 `search_text` 支持大小写敏感选项。
+4. 为二进制文件增加跳过逻辑。
+5. 为超大文件截断行为增加测试。
+
+## 11. 后续开发阶段
 
 ### 第四课：文件修改工具
 
@@ -867,7 +990,7 @@ Reviewer：检查 diff
 | Phase 1 | DeepSeek 普通调用和 tool call 解析 | 已完成 |
 | 第一课 | Agent Loop 和 `get_time` 假工具 | 已完成 |
 | 第二课 | Tool Registry | 已完成 |
-| 第三课 | 只读文件工具 | 等待通知 |
+| 第三课 | 只读文件工具 | 已完成 |
 | 第四课 | 文件修改工具 | 等待通知 |
 | 第五课 | 命令、测试和 Git diff | 等待通知 |
 | 第六课 | 权限和 Hooks | 等待通知 |

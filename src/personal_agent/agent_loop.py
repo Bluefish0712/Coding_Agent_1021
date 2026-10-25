@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
 
 from .deepseek_client import DeepSeekClient, DeepSeekError
 from .tools.clock import GET_TIME_SCHEMA, get_time
+from .tools.filesystem import create_filesystem_tools
 from .tools.registry import ToolDefinition, ToolRegistry
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
         self.max_turns = max_turns
-        self.registry = registry or ToolRegistry([
-            ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time),
-        ])
+        default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
+        default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
+        self.registry = registry or ToolRegistry(default_tools)
 
     def run(self, user_input: str) -> str:
         messages: list[dict[str, Any]] = [{"role": "user", "content": user_input}]
