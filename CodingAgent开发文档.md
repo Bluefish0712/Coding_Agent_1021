@@ -878,7 +878,94 @@ AgentLoop 本身仍然不包含这些工具的实现，只从 Registry 获取 Sc
 4. 为二进制文件增加跳过逻辑。
 5. 为超大文件截断行为增加测试。
 
-## 11. 后续开发阶段
+### 10.9 第三课自测命令
+
+所有命令都应在项目根目录执行：
+
+```powershell
+cd D:\GITHUBPROJECTS\AGENTPROJ_PERSONAL\Coding_Agent_1021
+```
+
+#### 测试目录查看
+
+```powershell
+python -m personal_agent.cli agent "请查看当前工作区的目录结构，并列出主要文件。"
+```
+
+预期现象：模型调用 `list_directory`，然后根据返回结果总结目录。
+
+#### 测试读取文件
+
+```powershell
+python -m personal_agent.cli agent "请读取 README.md，并告诉我这个项目当前完成到了哪一课。"
+```
+
+预期现象：模型调用 `read_file`，工具结果中出现 README 内容，最终回答项目状态。
+
+#### 测试代码搜索
+
+```powershell
+python -m personal_agent.cli agent "请搜索项目中所有出现 ToolRegistry 的位置，并说明它的作用。"
+```
+
+预期现象：模型调用 `search_text`，结果包含文件路径、行号和匹配行。
+
+#### 测试工作区边界
+
+```powershell
+python -m personal_agent.cli agent "请读取 ../secret.txt 的内容。"
+```
+
+预期现象：工具拒绝工作区外路径，模型应说明无法读取，而不是输出文件内容。
+
+#### 测试工具选择
+
+```powershell
+python -m personal_agent.cli agent "请先查看 src/personal_agent 目录，再读取其中的 agent_loop.py，最后解释 AgentLoop 如何工作。"
+```
+
+预期现象：模型至少调用 `list_directory` 和 `read_file`，并可能分多轮完成任务。
+
+注意：模型决定是否调用工具，因此自然语言表达可能影响工具选择。如果模型没有调用预期工具，可以把指令写得更明确，例如“必须调用 read_file 工具读取……”。
+
+## 12. 每一课的自测规范
+
+以后每完成一课，都提供三类测试：
+
+### A. 直接功能测试
+
+验证本课新增能力是否能单独工作。
+
+### B. Agent 场景测试
+
+通过：
+
+```powershell
+python -m personal_agent.cli agent "自然语言任务"
+```
+
+验证模型是否能选择正确工具并完成多轮流程。
+
+### C. 失败场景测试
+
+输入错误路径、错误参数或制造工具失败，观察 Agent 是否能返回清晰错误并安全结束。
+
+当前各课自测入口：
+
+| 课程 | 自测方式 | 主要验证 |
+|---|---|---|
+| Phase 0 | `python -m personal_agent.cli doctor` | 环境和 API 配置 |
+| Phase 1 | `python -m personal_agent.cli chat "..."` | DeepSeek 普通调用 |
+| 第一课 | `python -m personal_agent.cli agent "请调用 get_time..."` | Agent Loop |
+| 第二课 | `python -m personal_agent.cli agent "..."` | Registry 分发工具 |
+| 第三课 | `python -m personal_agent.cli agent "请读取 README.md..."` | 文件观察工具 |
+| 第四课 | 等实现后补充 | 文件修改 |
+| 第五课 | 等实现后补充 | 命令和测试执行 |
+| 第六课 | 等实现后补充 | 权限和 Hooks |
+
+每课文档必须记录：实际命令、模型是否调用预期工具、工具返回是否正确、最终结果是否符合预期、失败时发生了什么。
+
+## 13. 后续开发阶段
 
 ### 第四课：文件修改工具
 
