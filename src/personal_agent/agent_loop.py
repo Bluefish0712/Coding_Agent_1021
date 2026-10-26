@@ -10,10 +10,11 @@ from .tools.command import create_command_tools
 from .tools.registry import ToolDefinition, ToolRegistry
 from .tools.permissions import PermissionPolicy
 from .tools.todo import create_todo_tools
+from .tools.subagent import create_subagent_tools
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
@@ -23,6 +24,8 @@ class AgentLoop:
         default_tools.extend(create_command_tools(workspace or Path.cwd()))
         todo_tools, _ = create_todo_tools()
         default_tools.extend(todo_tools)
+        if include_subagent:
+            default_tools.extend(create_subagent_tools(client, workspace=workspace or Path.cwd(), max_turns=max_turns, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks))
         self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:

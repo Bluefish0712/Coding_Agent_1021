@@ -1416,3 +1416,53 @@ python -m personal_agent.cli agent "请为‘修复一个测试失败问题’�
 - 为什么“整体替换清单”比隐式合并更容易理解和验证
 - 任务计划如何帮助模型分解复杂目标
 
+## 19. 第八课：Subagent 子 Agent
+
+状态：已完成。
+
+### 19.1 本课目标
+
+第七课让主 Agent 记录任务，第八课加入 `task` 工具，把一个明确的子任务交给独立的子 Agent：
+
+```text
+主 Agent
+  ├─ 自己处理主任务
+  └─ task(prompt) → 子 Agent 使用全新的 messages[] → 返回最终摘要
+```
+
+这对应参考项目的 `s06_subagent`。这里隔离的是对话上下文，不是进程或文件系统：父子 Agent 仍在同一 Python 进程和同一个 workspace 中运行，因此子 Agent 的文件修改会影响父 Agent 能看到的项目。
+
+### 19.2 父子 Agent 的边界
+
+- 父 Agent 拥有 `task` 工具。
+- 子 Agent 使用文件、命令、Todo 等基础工具，但 `include_subagent=False`，因此不能继续创建子 Agent。
+- 子 Agent 从新的 `messages = [{"role": "user", "content": prompt}]` 开始，不复制父 Agent 的历史工具调用。
+- 子 Agent 最终只返回文本摘要，子 Agent 的中间消息不会进入父 Agent 的上下文。
+- 父子 Agent 共享 DeepSeekClient、workspace、权限策略和 Hooks。
+
+### 19.3 为什么要隔离上下文
+
+如果父 Agent 为了分析某个文件调用了十几次工具，所有中间结果都会留在父上下文中。把“研究调用链”“总结测试结构”等工作交给子 Agent 后，父 Agent 只接收最终结论，可以减少上下文噪声。
+
+它不是多进程，也不是并行执行；当前实现是同步嵌套调用：父 Agent 等子 Agent 返回后再继续。
+
+### 19.4 第八课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请使用一个子 Agent 检查项目使用了什么测试框架，并把子 Agent 的结论告诉我。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请把‘读取项目结构并总结主要模块’交给子 Agent，父 Agent 只汇报子 Agent 的最终摘要。"
+```
+
+运行时观察：
+
+```text
+[Subagent started]
+Allow tool read_file(...)? [y/N]
+[Subagent done]
+```
+
+如果子 Agent 需要执行高风险工具，父子 Agent 共享当前权限策略，因此仍然会请求审批。子 Agent 不应再次调用 `task`。
+
