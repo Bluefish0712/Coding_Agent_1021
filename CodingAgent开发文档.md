@@ -1510,3 +1510,58 @@ python -m personal_agent.cli agent "请加载 code-review 技能，然后检查�
 
 观察重点：system prompt 中是否只有技能目录；模型是否调用 `load_skill`；完整技能内容是否只在调用后进入上下文；未知技能是否返回可读错误。
 
+## 21. 第十课：Context Compact 上下文压缩
+
+状态：已完成。
+
+### 21.1 本课目标
+
+长任务会让 `messages[]` 不断增长：文件内容、搜索结果、测试日志和模型回复都会继续留在上下文。本课加入 `ContextCompactor`，在下一次调用 DeepSeek 前检查消息数量和字符数，超限时归档旧历史并保留当前目标与最近消息。
+
+```text
+messages[] 变长
+    ↓
+估算消息数量和字符数
+    ↓
+完整历史写入 .transcripts/
+    ↓
+保留当前目标 + 最近消息
+    ↓
+继续调用模型
+```
+
+### 21.2 为什么先归档再压缩
+
+压缩会丢失一部分上下文细节，所以 `ContextCompactor` 先把完整消息写入 `.transcripts/transcript-*.json`。当前消息中留下归档路径和当前用户请求，需要时可以通过文件工具恢复历史。
+
+本课使用确定性压缩，不调用额外模型生成摘要：这样行为容易测试，且不会增加 DeepSeek API 请求。后续可以再加入模型摘要和 API 返回上下文过长时的补救。
+
+### 21.3 两种触发方式
+
+1. 自动触发：每次调用 DeepSeek 前，消息数量超过 20 条或估算字符数超过 30,000 时压缩。
+2. 主动触发：模型调用 `compact` 工具；当前这一批工具调用全部完成后再压缩，避免留下孤立的工具调用或工具结果。
+
+`compact` 工具不是删除文件的工具，它只管理当前会话消息，并把备份写入 `.transcripts/`。
+
+### 21.4 工具调用配对保护
+
+OpenAI 兼容消息中，assistant 的 `tool_calls` 和对应的 `tool` 消息必须成对存在。压缩切点如果落在两者之间，下一次 DeepSeek 请求可能被判为无效。因此压缩时如果保留区从 `tool` 消息开始，就向前移动一个位置，保留对应的 assistant 消息。
+
+### 21.5 第十课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请连续读取并比较多个项目文件，在任务中适时调用 compact，最后总结你保留了哪些重要信息。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请先分析项目结构，再主动压缩上下文，然后继续读取 agent_loop.py 并解释它。"
+```
+
+观察项目目录中是否出现：
+
+```text
+.transcripts/transcript-*.json
+```
+
+重点观察：压缩后任务是否仍然记得当前用户目标；工具调用和工具结果是否仍然成对；模型是否能继续工作，而不是因为历史被裁剪而崩溃。
+

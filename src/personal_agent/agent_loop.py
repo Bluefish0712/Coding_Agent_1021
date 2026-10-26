@@ -13,15 +13,18 @@ from .tools.todo import create_todo_tools
 from .tools.subagent import create_subagent_tools
 from .skills import SkillLoader
 from .tools.skills import create_skill_tools
+from .tools.compact import create_compact_tools
+from .context import ContextCompactor
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
         self.max_turns = max_turns
         self.system_prompt = system_prompt
+        self.compactor = compactor or ContextCompactor(workspace or Path.cwd())
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
         default_tools.extend(create_command_tools(workspace or Path.cwd()))
@@ -31,6 +34,7 @@ class AgentLoop:
             default_tools.extend(create_subagent_tools(client, workspace=workspace or Path.cwd(), max_turns=max_turns, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks))
         if skill_loader is not None:
             default_tools.extend(create_skill_tools(skill_loader))
+        default_tools.extend(create_compact_tools())
         self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:
@@ -40,6 +44,7 @@ class AgentLoop:
         messages.append({"role": "user", "content": user_input})
 
         for _ in range(self.max_turns):
+            messages = self.compactor.prepare(messages, user_input)
             response = self.client.chat(messages, tools=self.registry.schemas())
             assistant_message = response.message
             messages.append(assistant_message)
@@ -47,13 +52,17 @@ class AgentLoop:
             if not tool_calls:
                 return assistant_message.get("content") or ""
 
+            compact_requested = False
             for call in tool_calls:
                 result = self.registry.execute_call(call)
+                compact_requested = compact_requested or call.get("function", {}).get("name") == "compact"
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call["id"],
                     "content": result,
                 })
+            if compact_requested:
+                messages = self.compactor.compact(messages, user_input, reason="requested")
 
         raise DeepSeekError(f"agent stopped after {self.max_turns} turns")
 
