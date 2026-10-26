@@ -1353,3 +1353,66 @@ python -m personal_agent.cli agent "请在当前项目创建一个 lesson6_probe
 
 这次修正对应参考项目中更完整的 s03 Permission：有硬拒绝、规则匹配和用户审批；当前 Hooks 则是 s04 的基础版。它还没有进入 s05 TodoWrite。
 
+## 18. 第七课：TodoWrite 任务清单
+
+状态：已完成。
+
+### 18.1 本课目标
+
+前几课的 Agent 已经会观察、修改、执行和验证，但面对复杂任务时没有显式计划。本课加入 `todo_write`，让模型可以维护当前任务清单：
+
+```text
+规划任务 → 执行一个步骤 → 更新状态 → 继续下一步 → 汇报进度
+```
+
+这对应参考项目的 `s05_todo_write`。当前实现把清单保存在一次 Agent 实例的内存中，不写文件、不使用数据库；持久化会留到后面的 s10 Task System。
+
+### 18.2 工具输入
+
+模型调用格式：
+
+```json
+{
+  "todos": [
+    {"id": "1", "content": "读取相关代码", "status": "completed"},
+    {"id": "2", "content": "定位问题", "status": "in_progress"},
+    {"id": "3", "content": "修改并运行测试", "status": "pending"}
+  ]
+}
+```
+
+每个任务必须有唯一 `id`、非空 `content`，状态只能是 `pending`、`in_progress` 或 `completed`。一次 `todo_write` 会整体替换旧清单，而不是悄悄合并，避免模型看到过期任务。
+
+### 18.3 架构变化
+
+新增文件：`src/personal_agent/tools/todo.py`。它使用 `create_todo_tools()` 返回工具定义和内部状态；`AgentLoop` 只负责把这个工具注册到默认注册表，不负责统计任务数量或判断状态。
+
+因此架构仍然是：
+
+```text
+AgentLoop → ToolRegistry → todo_write → 内存中的 todo state
+```
+
+工具返回完成数、进行中数量、待办数量和每条任务，模型可以据此决定下一步。它不是新的 AgentLoop，也不是新的模型调用循环。
+
+### 18.4 第七课自测命令
+
+```powershell
+python -m personal_agent.cli agent "这是一个复杂任务：先查看项目结构，再读取 agent_loop.py，然后运行测试。请先创建任务清单，执行过程中及时更新任务状态，最后汇报每一步。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请为‘修复一个测试失败问题’创建一个三步任务清单，并说明每个任务的状态。"
+```
+
+观察重点：模型是否先调用 `todo_write`；任务是否从 `pending` 变成 `in_progress` 和 `completed`；测试失败时是否保留失败步骤，而不是声称全部完成。
+
+### 18.5 需要掌握的知识
+
+- 状态机：`pending → in_progress → completed`
+- 数据校验和唯一 ID
+- 内存状态与持久化状态的区别
+- 为什么工具状态不应该硬编码进 AgentLoop
+- 为什么“整体替换清单”比隐式合并更容易理解和验证
+- 任务计划如何帮助模型分解复杂目标
+

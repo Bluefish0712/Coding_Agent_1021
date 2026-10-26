@@ -1,5 +1,6 @@
 from personal_agent.tools.permissions import PermissionPolicy
 from personal_agent.tools.registry import ToolDefinition, ToolRegistry
+from personal_agent.tools.todo import create_todo_tools
 
 
 def schema(name: str) -> dict:
@@ -50,3 +51,19 @@ def test_linux_shell_command_is_hard_denied():
     )
     result = registry.execute_call(call("run_tests", '{"command":"cd /workspace; python -m pytest | tail -60"}'))
     assert "Linux-only" in result
+
+
+def test_todo_write_replaces_state_and_reports_counts():
+    definitions, state = create_todo_tools()
+    registry = ToolRegistry(definitions)
+    result = registry.execute_call(call("todo_write", '{"todos":[{"id":"1","content":"read code","status":"completed"},{"id":"2","content":"run tests","status":"pending"}]}'))
+    assert "completed=1" in result
+    assert "pending=1" in result
+    assert len(state) == 2
+
+
+def test_todo_write_rejects_duplicate_ids():
+    definitions, _ = create_todo_tools()
+    registry = ToolRegistry(definitions)
+    result = registry.execute_call(call("todo_write", '{"todos":[{"id":"1","content":"a","status":"pending"},{"id":"1","content":"b","status":"pending"}]}'))
+    assert "duplicate id" in result

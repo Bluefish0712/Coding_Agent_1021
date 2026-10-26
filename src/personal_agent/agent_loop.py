@@ -9,6 +9,7 @@ from .tools.filesystem import create_filesystem_tools
 from .tools.command import create_command_tools
 from .tools.registry import ToolDefinition, ToolRegistry
 from .tools.permissions import PermissionPolicy
+from .tools.todo import create_todo_tools
 
 
 class AgentLoop:
@@ -20,6 +21,8 @@ class AgentLoop:
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
         default_tools.extend(create_command_tools(workspace or Path.cwd()))
+        todo_tools, _ = create_todo_tools()
+        default_tools.extend(todo_tools)
         self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:
