@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from .config import load_settings
 from .deepseek_client import DeepSeekClient, DeepSeekError
 from .agent_loop import AgentLoop
 from .tools.permissions import PermissionPolicy
+from .skills import SkillLoader, build_system_prompt
 
 
 def doctor() -> int:
@@ -37,11 +39,14 @@ def agent(prompt: str) -> int:
     try:
         client = DeepSeekClient(settings)
         try:
+            workspace = Path.cwd()
+            skill_loader = SkillLoader(workspace / "skills")
+            skill_loader.scan()
             def approve(tool_name: str, arguments: dict) -> bool:
                 details = f"{tool_name}({arguments})"
                 return input(f"Allow tool {details}? [y/N] ").strip().lower() in {"y", "yes"}
 
-            answer = AgentLoop(client, permission_policy=PermissionPolicy(approve)).run(prompt)
+            answer = AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), skill_loader=skill_loader, system_prompt=build_system_prompt(workspace, skill_loader)).run(prompt)
         finally:
             client.close()
     except (DeepSeekError, ValueError) as exc:

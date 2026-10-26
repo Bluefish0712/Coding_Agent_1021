@@ -1466,3 +1466,47 @@ Allow tool read_file(...)? [y/N]
 
 如果子 Agent 需要执行高风险工具，父子 Agent 共享当前权限策略，因此仍然会请求审批。子 Agent 不应再次调用 `task`。
 
+## 20. 第九课：Skill Loading 按需加载技能
+
+状态：已完成。
+
+### 20.1 本课目标
+
+第八课之后，Agent 可以委派子任务，但不同任务需要不同知识。本课加入技能目录和 `load_skill` 工具：启动时只把技能名称和简介放进 system prompt，模型判断需要时再加载完整 `SKILL.md`。
+
+```text
+启动时：技能目录（名称 + 简介）
+任务中：调用 load_skill(name)
+调用后：完整技能说明进入 tool result
+```
+
+这对应参考项目的 `s07_skill_loading`，目的是减少无关说明对上下文和输入 token 的占用。
+
+### 20.2 技能文件结构
+
+```text
+skills/
+  code-review/SKILL.md
+  testing/SKILL.md
+```
+
+每个 `SKILL.md` 使用简单 YAML frontmatter。`SkillLoader.scan()` 只读取工作区 `skills` 目录下的一级子目录，建立名称到技能的注册表；`load()` 按名称查询，不把模型输入直接当作文件路径。
+
+### 20.3 架构变化
+
+新增 `src/personal_agent/skills.py` 和 `tools/skills.py`。`AgentLoop` 通过可选的 `skill_loader` 注册 `load_skill`，通过可选的 `system_prompt` 接收技能目录；主循环仍然不关心 Markdown 文件格式或技能内容。
+
+CLI 会加载当前项目的 `skills/` 目录。技能完整内容不会在每次请求中自动发送，只有模型调用 `load_skill` 后才作为工具结果进入上下文。
+
+### 20.4 第九课自测命令
+
+```powershell
+python -m personal_agent.cli agent "当前有哪些可用技能？请先选择与测试相关的技能并加载它，然后说明项目测试应该遵守哪些原则。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请加载 code-review 技能，然后检查当前项目最近的代码修改并给出审查结果。"
+```
+
+观察重点：system prompt 中是否只有技能目录；模型是否调用 `load_skill`；完整技能内容是否只在调用后进入上下文；未知技能是否返回可读错误。
+

@@ -11,14 +11,17 @@ from .tools.registry import ToolDefinition, ToolRegistry
 from .tools.permissions import PermissionPolicy
 from .tools.todo import create_todo_tools
 from .tools.subagent import create_subagent_tools
+from .skills import SkillLoader
+from .tools.skills import create_skill_tools
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
         self.max_turns = max_turns
+        self.system_prompt = system_prompt
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
         default_tools.extend(create_command_tools(workspace or Path.cwd()))
@@ -26,10 +29,15 @@ class AgentLoop:
         default_tools.extend(todo_tools)
         if include_subagent:
             default_tools.extend(create_subagent_tools(client, workspace=workspace or Path.cwd(), max_turns=max_turns, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks))
+        if skill_loader is not None:
+            default_tools.extend(create_skill_tools(skill_loader))
         self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:
-        messages: list[dict[str, Any]] = [{"role": "user", "content": user_input}]
+        messages: list[dict[str, Any]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": user_input})
 
         for _ in range(self.max_turns):
             response = self.client.chat(messages, tools=self.registry.schemas())
