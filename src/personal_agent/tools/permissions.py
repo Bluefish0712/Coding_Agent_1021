@@ -10,7 +10,7 @@ ApprovalCallback = Callable[[str, dict[str, Any]], bool]
 class PermissionPolicy:
     """Small tool-level policy: read-only tools are allowed; risky tools ask."""
 
-    RISKY_TOOLS = frozenset({"write_file", "apply_patch", "run_command", "run_tests", "task", "remember"})
+    RISKY_TOOLS = frozenset({"write_file", "apply_patch", "run_command", "run_tests", "task", "remember", "create_task", "update_task", "claim_task", "complete_task"})
     _DANGEROUS_COMMAND = re.compile(
         r"(?i)(?:^|[;&|()\n])\s*(?:del|erase|rmdir|rd|rm|sudo|shutdown|reboot|format|mkfs|diskpart)\b"
     )

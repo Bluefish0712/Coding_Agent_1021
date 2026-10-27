@@ -1615,3 +1615,77 @@ Get-Content .memory\MEMORY.md
 
 观察重点：是否生成独立记忆文件；索引是否更新；新会话是否只召回与当前问题相关的记忆；当前用户的新要求是否优先于旧记忆。
 
+## 23. 第十二课：Task System 持久化任务系统
+
+状态：已完成。
+
+### 23.1 本课目标
+
+s05 的 `todo_write` 只保存当前 Agent 实例的执行清单。本课加入 `.tasks/` 任务系统，让任务拥有独立 ID、描述、负责人、状态和依赖关系，程序退出后仍然可以恢复。
+
+```text
+create_task → 得到 task_id
+update_task → 建立 blocked_by 依赖
+claim_task → pending → in_progress
+complete_task → in_progress → completed
+```
+
+### 23.2 TodoWrite 与 Task System 的区别
+
+```text
+todo_write：当前会话的整张执行清单，内存状态，无依赖
+Task System：跨会话的独立任务，.tasks/{id}.json，有 owner 和依赖图
+```
+
+两者暂时并存：TodoWrite 适合 Agent 自己规划几步；Task System 适合多个可恢复、可认领、互相阻塞的开发任务。
+
+### 23.3 任务依赖和状态机
+
+任务状态只能按以下方式变化：
+
+```text
+pending ──claim──→ in_progress ──complete──→ completed
+```
+
+如果任务的 `blocked_by` 中有任何任务不是 `completed`，它不能被认领。这样 `create API` 可以依赖 `setup schema`，测试任务可以依赖 API 任务。
+
+任务 ID 在创建时生成，例如：
+
+```text
+task_a1b2c3d4
+```
+
+任务文件保存在：
+
+```text
+.tasks/task_a1b2c3d4.json
+```
+
+### 23.4 六个任务工具
+
+- `create_task`：创建任务并返回运行时生成的 ID。
+- `list_tasks`：列出所有任务及状态。
+- `get_task`：读取一个任务的完整 JSON。
+- `update_task`：使用已存在的 ID 设置依赖。
+- `claim_task`：检查依赖后认领任务。
+- `complete_task`：由负责人完成任务。
+
+先创建节点、再建立依赖，是因为模型一次回复可能同时创建多个任务；在工具结果返回前，一个创建调用无法安全引用另一个调用刚生成的 ID。
+
+### 23.5 第十二课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请创建三个持久化任务：准备项目结构、编写核心代码、运行测试；让编写核心代码依赖项目结构，让运行测试依赖核心代码。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请列出当前所有持久化任务，并说明哪些任务可以认领。"
+```
+
+```powershell
+Get-ChildItem .tasks
+Get-Content .tasks\*.json
+```
+
+观察重点：任务 ID 是否写入 `.tasks/`；依赖未完成时是否拒绝 claim；完成前置任务后，下游任务是否可以认领；重新启动 Agent 后任务是否仍然存在。
+
