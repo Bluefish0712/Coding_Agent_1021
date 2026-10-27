@@ -1565,3 +1565,53 @@ python -m personal_agent.cli agent "请先分析项目结构，再主动压缩�
 
 重点观察：压缩后任务是否仍然记得当前用户目标；工具调用和工具结果是否仍然成对；模型是否能继续工作，而不是因为历史被裁剪而崩溃。
 
+## 22. 第十一课：Memory 跨会话记忆
+
+状态：已完成。
+
+### 22.1 本课目标
+
+s08 的 transcript 是当前会话归档；本课的 Memory 是跨会话仍然有用的少量信息：用户偏好、项目事实、工作反馈和参考线索。
+
+```text
+remember 保存记忆
+    ↓
+.memory/*.md + MEMORY.md 索引
+    ↓
+新会话根据请求检索
+    ↓
+相关记忆进入 system prompt
+```
+
+### 22.2 存储格式
+
+每条记忆是 `.memory/` 下的 Markdown 文件，frontmatter 包含 `name`、`description` 和 `type`。类型有 `user`、`feedback`、`project`、`reference`。
+
+`MEMORY.md` 只是索引，不把所有正文自动放入 system prompt。正文仍然存放在独立文件中。
+
+### 22.3 两个记忆工具
+
+- `remember`：保存一条长期记忆，需要写入权限；当前不会自动保存所有聊天内容。
+- `recall_memory`：按关键词检索相关记忆，只返回匹配记录。
+
+CLI 在每次新会话启动时也会根据当前用户请求做一次轻量关键词召回，并把结果标记为背景知识。记忆不是新的用户命令；如果它和当前请求冲突，以当前请求为准。
+
+当前实现使用确定性的关键词匹配，没有额外调用 DeepSeek 做向量检索或自动提取，便于理解和测试。后续可以再加入 embedding、模型提取和重复记忆整理。
+
+### 22.4 第十一课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请记住：我希望项目始终直接使用 DeepSeek API，不要切换到 Claude 或 OpenAI。"
+```
+
+```powershell
+python -m personal_agent.cli agent "下次开发这个项目时，我的模型 API 偏好是什么？"
+```
+
+```powershell
+Get-ChildItem .memory
+Get-Content .memory\MEMORY.md
+```
+
+观察重点：是否生成独立记忆文件；索引是否更新；新会话是否只召回与当前问题相关的记忆；当前用户的新要求是否优先于旧记忆。
+

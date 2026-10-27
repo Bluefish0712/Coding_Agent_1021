@@ -9,6 +9,7 @@ from .deepseek_client import DeepSeekClient, DeepSeekError
 from .agent_loop import AgentLoop
 from .tools.permissions import PermissionPolicy
 from .skills import SkillLoader, build_system_prompt
+from .memory import MemoryStore, build_memory_context
 
 
 def doctor() -> int:
@@ -42,11 +43,13 @@ def agent(prompt: str) -> int:
             workspace = Path.cwd()
             skill_loader = SkillLoader(workspace / "skills")
             skill_loader.scan()
+            memory_store = MemoryStore(workspace)
             def approve(tool_name: str, arguments: dict) -> bool:
                 details = f"{tool_name}({arguments})"
                 return input(f"Allow tool {details}? [y/N] ").strip().lower() in {"y", "yes"}
 
-            answer = AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), skill_loader=skill_loader, system_prompt=build_system_prompt(workspace, skill_loader)).run(prompt)
+            system_prompt = build_system_prompt(workspace, skill_loader) + "\n\n" + build_memory_context(memory_store, prompt)
+            answer = AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), skill_loader=skill_loader, memory_store=memory_store, system_prompt=system_prompt).run(prompt)
         finally:
             client.close()
     except (DeepSeekError, ValueError) as exc:

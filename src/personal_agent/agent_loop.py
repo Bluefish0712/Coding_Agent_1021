@@ -15,10 +15,12 @@ from .skills import SkillLoader
 from .tools.skills import create_skill_tools
 from .tools.compact import create_compact_tools
 from .context import ContextCompactor
+from .memory import MemoryStore
+from .tools.memory import create_memory_tools
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None, memory_store: MemoryStore | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
@@ -35,6 +37,8 @@ class AgentLoop:
         if skill_loader is not None:
             default_tools.extend(create_skill_tools(skill_loader))
         default_tools.extend(create_compact_tools())
+        if memory_store is not None:
+            default_tools.extend(create_memory_tools(memory_store))
         self.registry = registry or ToolRegistry(default_tools, permission_policy=permission_policy, before_hooks=before_hooks, after_hooks=after_hooks, error_hooks=error_hooks)
 
     def run(self, user_input: str) -> str:
