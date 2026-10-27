@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from .registry import ToolDefinition
+from ..background import BackgroundManager
 
 
-def create_command_tools(workspace: Path) -> list[ToolDefinition]:
+def create_command_tools(workspace: Path, background: BackgroundManager | None = None) -> list[ToolDefinition]:
     workspace = workspace.resolve()
 
     def execute(command: str, *, timeout: float, max_chars: int) -> str:
@@ -34,6 +35,11 @@ def create_command_tools(workspace: Path) -> list[ToolDefinition]:
         command = str(args["command"])
         timeout = min(float(args.get("timeout_seconds", 60)), 300)
         max_chars = min(int(args.get("max_chars", 12_000)), 50_000)
+        if args.get("run_in_background") is True:
+            if background is None:
+                return "tool error: background manager is not configured"
+            task_id = background.start(command, timeout, max_chars)
+            return f"[Background task {task_id} started]"
         return execute(command, timeout=timeout, max_chars=max_chars)
 
     def run_tests(args: dict[str, Any]) -> str:
@@ -68,7 +74,7 @@ def create_command_tools(workspace: Path) -> list[ToolDefinition]:
 
     return [
         ToolDefinition("run_command", {
-            "type": "function", "function": {"name": "run_command", "description": "Run a command in the workspace and return its exit code and output.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_seconds": {"type": "number"}, "max_chars": {"type": "integer"}}, "required": ["command"], "additionalProperties": False}},
+            "type": "function", "function": {"name": "run_command", "description": "Run a command in the workspace; explicitly set run_in_background=true for a slow command.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_seconds": {"type": "number"}, "max_chars": {"type": "integer"}, "run_in_background": {"type": "boolean"}}, "required": ["command"], "additionalProperties": False}},
         }, run_command),
         ToolDefinition("run_tests", {
             "type": "function", "function": {"name": "run_tests", "description": "Run the project's test command and return the result.", "parameters": {"type": "object", "properties": {"command": {"type": "string"}, "timeout_seconds": {"type": "number"}, "max_chars": {"type": "integer"}}, "additionalProperties": False}},

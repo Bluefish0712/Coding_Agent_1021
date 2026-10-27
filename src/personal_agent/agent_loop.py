@@ -19,6 +19,7 @@ from .memory import MemoryStore
 from .tools.memory import create_memory_tools
 from .tasks import TaskStore
 from .tools.tasks import create_task_tools
+from .background import BackgroundManager
 
 
 class AgentLoop:
@@ -29,9 +30,10 @@ class AgentLoop:
         self.max_turns = max_turns
         self.system_prompt = system_prompt
         self.compactor = compactor or ContextCompactor(workspace or Path.cwd())
+        self.background = BackgroundManager(workspace or Path.cwd())
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
-        default_tools.extend(create_command_tools(workspace or Path.cwd()))
+        default_tools.extend(create_command_tools(workspace or Path.cwd(), self.background))
         todo_tools, _ = create_todo_tools()
         default_tools.extend(todo_tools)
         if include_subagent:
@@ -52,6 +54,9 @@ class AgentLoop:
         messages.append({"role": "user", "content": user_input})
 
         for _ in range(self.max_turns):
+            notifications = self.background.collect()
+            for notification in notifications:
+                messages.append({"role": "user", "content": notification})
             messages = self.compactor.prepare(messages, user_input)
             response = self.client.chat(messages, tools=self.registry.schemas())
             assistant_message = response.message

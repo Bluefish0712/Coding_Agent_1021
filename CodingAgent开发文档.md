@@ -1689,3 +1689,75 @@ Get-Content .tasks\*.json
 
 观察重点：任务 ID 是否写入 `.tasks/`；依赖未完成时是否拒绝 claim；完成前置任务后，下游任务是否可以认领；重新启动 Agent 后任务是否仍然存在。
 
+## 24. 第十三课：Background Tasks 后台任务
+
+状态：已完成。
+
+### 24.1 本课目标
+
+s10 让任务状态可以持久化，但命令仍然是同步执行的。安装依赖、完整测试或构建可能需要很久，如果 AgentLoop 一直等待，模型就不能继续处理其他工作。本课让模型显式请求后台执行：
+
+```text
+run_command(run_in_background=true)
+    ↓
+BackgroundManager 启动 daemon 线程
+    ↓
+立即返回 bg_id
+    ↓
+AgentLoop 继续下一轮
+    ↓
+后续轮次收集 task_notification
+```
+
+### 24.2 显式后台策略
+
+只有模型明确传入：
+
+```json
+{"command": "python -m pytest", "run_in_background": true}
+```
+
+才会进入后台。默认仍然同步执行，不根据 `test`、`build` 或 `install` 等关键词猜测，避免意外改变行为。
+
+### 24.3 任务生命周期
+
+`BackgroundManager` 为每个后台命令生成 `bg_xxxxxxxx`，保存运行状态、命令和结果。命令结束后状态变为 `completed` 或 `failed`，结果进入 ready 队列。
+
+原始工具调用先返回：
+
+```text
+[Background task bg_xxxxxxxx started]
+```
+
+后续 AgentLoop 请求 DeepSeek 前，收集结果并追加独立通知：
+
+```text
+<task_notification id='bg_xxxxxxxx' status='completed'>
+exit_code: 0
+...
+</task_notification>
+```
+
+通知不复用原始 tool_call_id，因为原始调用已经有一个合法的占位 tool result。
+
+### 24.4 与 Task System 的区别
+
+```text
+Task System：持久化的业务任务，跨会话保存依赖和负责人
+Background Task：运行时的异步命令，等待进程结束并收集输出
+```
+
+当前后台任务保存在内存中，程序退出后不恢复；后续可把它与 `.tasks/` 或更完整的后台作业数据库结合。
+
+### 24.5 第十三课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请在后台运行一个短暂的 Python 等待命令，同时读取 README.md，等后台任务完成后再汇报结果。"
+```
+
+```powershell
+python -m personal_agent.cli agent "请明确使用 run_in_background=true 在后台运行项目测试，之后检查项目目录，最后汇报后台测试结果。"
+```
+
+观察重点：是否先返回 `bg_id`；Agent 是否继续执行其他工具；后续轮次是否出现 `<task_notification>`；未设置 `run_in_background` 时是否仍然同步执行。
+
