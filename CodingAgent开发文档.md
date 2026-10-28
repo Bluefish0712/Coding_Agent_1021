@@ -1833,3 +1833,121 @@ python -m personal_agent.cli agent "请列出当前定时任务，并取消刚�
 
 要观察实际触发，需要保持一个长期运行的 Agent 进程；当前一次性 CLI 命令结束后，调度线程也会停止。
 
+## 26. 第十五课：Agent Teams（s13）
+
+### 26.1 本课目标
+
+s12 解决的是“什么时候触发一个 Agent 任务”。s13 进一步解决“一个任务如何由多个 Agent 协作完成”。本课先实现一个可运行的基础团队运行时：Lead 可以创建持久队友，队友拥有独立线程和独立收件箱，完成工作后把结果发送回 Lead，并进入 IDLE 状态等待下一条消息。
+
+本课暂不实现完整参考项目中的 worktree、任务原子认领和计划审批。这些是下一层的并发一致性问题，先把最核心的通信和生命周期学清楚。
+
+### 26.2 新增文件
+
+- `src/personal_agent/team.py`：团队运行时和文件消息总线。
+- `src/personal_agent/tools/team.py`：暴露给 DeepSeek 的团队工具。
+- `tests/test_team.py`：消息往返和队友结果回传测试。
+
+### 26.3 核心架构
+
+```text
+用户 → Lead AgentLoop
+          │
+          ├─ spawn_teammate(role, task)
+          │       │
+          │       └─ TeamRuntime 创建后台队友线程
+          │                    │
+          │                    └─ 队友独立调用 AgentLoop
+          │
+          └─ MessageBus ← .mailboxes/*.jsonl
+                    ↑             │
+                    └─ result / 后续消息 / shutdown
+```
+
+Lead 和队友不能共用同一个 `messages` 列表。每个 Agent 的推理上下文必须隔离，否则队友的工具调用结果会混入 Lead 或其他队友的上下文。`MessageBus` 使用每个 Agent 一个 JSONL 文件来实现收件箱。
+
+### 26.4 `TeamMessage`
+
+`TeamMessage` 是通信协议的数据结构，主要字段是：
+
+- `sender`：发送者名称，例如 `lead` 或 `teammate_a1b2c3`。
+- `recipient`：接收者名称。
+- `content`：消息文本。
+- `message_type`：消息类型，目前有普通消息、`result` 和 `shutdown_request/response`。
+- `metadata`：为后续任务 ID、请求 ID 等扩展信息预留。
+
+### 26.5 `MessageBus`
+
+`send()` 把消息追加到 `.mailboxes/<recipient>.jsonl`，并通过 `Condition.notify_all()` 唤醒正在等待的队友。
+
+`read()` 读取并删除一个收件箱文件，因此当前设计是“消费即删除”，避免同一消息重复处理。
+
+`wait()` 在收件箱为空时阻塞等待；消息到达或超时后返回。它比持续轮询更适合 IDLE 队友，因为没有消息时不会不停占用 CPU。
+
+### 26.6 `Teammate`
+
+`Teammate` 描述一个队友的运行状态：
+
+- `name`：唯一名字。
+- `role`：角色，例如 `tests`、`auth`。
+- `status`：当前为 `working` 或 `idle`。
+- `current_task`：当前任务文本；工作完成后清空。
+
+### 26.7 `TeamRuntime`
+
+`spawn()` 创建队友记录和后台线程。线程启动前会保存初始任务，因此队友从第一个任务开始工作。
+
+`_run()` 是队友生命周期循环：
+
+```text
+WORK → 调用 AgentLoop → 发送 result → IDLE → 等待消息
+                                      │
+                                      ├─ 新消息 → WORK
+                                      └─ shutdown → 退出
+```
+
+本实现中，`worker` 是一个回调。CLI 为每个队友创建独立的 `AgentLoop`，所以队友仍然使用 DeepSeek、文件工具、命令工具和权限系统；团队层只负责生命周期和通信，不重新实现 Agent Loop。
+
+`send()` 向指定队友的收件箱发送后续工作；`list_teammates()` 查看状态；`shutdown()` 向所有队友发送关闭请求并等待线程结束。
+
+### 26.8 三个团队工具
+
+- `spawn_teammate`：创建队友。按照参考课程的安全边界，Lead 应先向用户提出分工并获得确认，再调用它。
+- `send_teammate`：向已经存在的队友发送追加任务。
+- `list_teammates`：查看队友的工作状态。
+
+工具层只负责参数 schema、错误转换和调用 `TeamRuntime`，不负责线程或文件收件箱逻辑。这保持了“工具接口”和“业务实现”分离。
+
+### 26.9 一次运行示例
+
+当用户说“把测试和配置检查并行完成”时，Lead 可以先提出：
+
+```text
+我建议创建两个队友：tests 负责测试，config 负责配置检查。是否开始？
+```
+
+用户确认后，Lead 调用 `spawn_teammate`。队友完成后，Lead 的收件箱会收到：
+
+```text
+message_type = result
+content = teammate_xxx completed: tests passed
+```
+
+之后 Lead 可以调用 `send_teammate` 让同一个队友继续处理，而不是每次创建一个全新的临时 subagent。这就是 s06 一次性 Subagent 与 s13 持久队友的主要区别。
+
+### 26.10 当前限制与下一步
+
+当前 CLI 仍然是一次性命令模式，因此队友会在本次 Agent 调用结束时被关闭。完整的交互式 Agent Teams 还需要：
+
+1. Lead 收件箱事件自动唤醒下一轮 Lead 对话。
+2. 共享 TaskStore 的原子认领和依赖检查。
+3. 队友只允许使用自己已认领任务的工作目录。
+4. worktree 隔离并发修改。
+5. 结构化的关机协议和计划审批闸门。
+
+### 26.11 自测命令
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_team.py -q --basetemp=.pytest-run-s13-team
+```
+
+本课完成后的完整回归结果：`43 passed`。
