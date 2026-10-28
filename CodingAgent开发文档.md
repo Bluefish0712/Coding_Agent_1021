@@ -1761,3 +1761,75 @@ python -m personal_agent.cli agent "请明确使用 run_in_background=true 在�
 
 观察重点：是否先返回 `bg_id`；Agent 是否继续执行其他工具；后续轮次是否出现 `<task_notification>`；未设置 `run_in_background` 时是否仍然同步执行。
 
+## 25. 第十四课：Cron Scheduler 定时任务
+
+状态：已完成。
+
+### 25.1 本课目标
+
+s11 的后台任务解决“命令启动后不阻塞”，但它不会记住命令什么时候启动。本课增加定时 Prompt 调度：到达指定时间后，把一条新的任务消息放入 Agent 的待处理队列。
+
+```text
+schedule_cron
+    ↓
+.scheduled_tasks.json
+    ↓
+调度线程每秒检查本地时间
+    ↓
+匹配 Cron 表达式
+    ↓
+加入待交付队列
+    ↓
+AgentLoop 下一轮消费
+    ↓
+[Scheduled] prompt
+```
+
+### 25.2 Cron 表达式
+
+当前支持五段式：
+
+```text
+分钟 小时 日 月 星期
+*     *    *  *  *
+0     9    *  *  *       每天 09:00
+*/5   *    *  *  *       每 5 分钟
+0     9    *  *  1-5     工作日 09:00
+```
+
+支持 `*`、`*/N`、单个数字、范围和逗号列表。调度器使用本机本地时间。
+
+### 25.3 三个工具
+
+- `schedule_cron`：保存 cron、prompt、是否重复和是否持久化。
+- `list_crons`：查看当前定时任务。
+- `cancel_cron`：按生成的 `cron_xxxxxxxx` ID 取消任务。
+
+持久化任务写入 `.scheduled_tasks.json`。`durable` 只保存任务定义；当前 CLI 进程退出后调度线程也会停止，重启 CLI 才会重新加载并继续调度。它不是 Windows 任务计划程序的替代品。
+
+### 25.4 调度与 AgentLoop 的边界
+
+调度线程只负责判断时间和入队，不直接调用 DeepSeek。AgentLoop 每一轮开始时消费队列，把任务变成：
+
+```text
+[Scheduled cron_xxxxxxxx] run tests
+```
+
+这样定时任务仍然经过现有 AgentLoop、权限、Hooks、Memory、Task System 和工具执行流程。一次性任务交付后删除；周期任务清除 pending 标记，等待下一次匹配。
+
+### 25.5 第十四课自测命令
+
+```powershell
+python -m personal_agent.cli agent "请创建一个每5分钟触发的定时任务，prompt 是‘检查项目测试状态’，然后列出当前定时任务。"
+```
+
+```powershell
+Get-Content .scheduled_tasks.json
+```
+
+```powershell
+python -m personal_agent.cli agent "请列出当前定时任务，并取消刚才创建的任务。"
+```
+
+要观察实际触发，需要保持一个长期运行的 Agent 进程；当前一次性 CLI 命令结束后，调度线程也会停止。
+
