@@ -49,6 +49,9 @@ class ToolRegistry:
     def schemas(self) -> list[dict[str, Any]]:
         return [definition.schema for definition in self._definitions.values()]
 
+    def names(self) -> set[str]:
+        return set(self._definitions)
+
     def execute_call(self, call: dict[str, Any]) -> str:
         function = call.get("function", {})
         name = function.get("name")

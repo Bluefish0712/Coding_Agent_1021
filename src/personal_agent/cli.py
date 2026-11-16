@@ -13,6 +13,7 @@ from .memory import MemoryStore, build_memory_context
 from .tasks import TaskStore
 from .scheduler import CronScheduler
 from .team import TeamRuntime
+from .mcp import MCPManager
 
 
 def doctor() -> int:
@@ -54,12 +55,13 @@ def agent(prompt: str) -> int:
                 teammate_prompt = f"你是持久队友 {name}。请独立完成下面的任务，并只返回结果摘要：\n{task}"
                 return AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), include_subagent=False).run(teammate_prompt)
             team_runtime = TeamRuntime(workspace, run_teammate, task_store)
+            mcp_manager = MCPManager()
             def approve(tool_name: str, arguments: dict) -> bool:
                 details = f"{tool_name}({arguments})"
                 return input(f"Allow tool {details}? [y/N] ").strip().lower() in {"y", "yes"}
 
             system_prompt = build_system_prompt(workspace, skill_loader) + "\n\n" + build_memory_context(memory_store, prompt)
-            answer = AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), skill_loader=skill_loader, memory_store=memory_store, task_store=task_store, scheduler=scheduler, team_runtime=team_runtime, system_prompt=system_prompt).run(prompt)
+            answer = AgentLoop(client, workspace=workspace, permission_policy=PermissionPolicy(approve), skill_loader=skill_loader, memory_store=memory_store, task_store=task_store, scheduler=scheduler, team_runtime=team_runtime, mcp_manager=mcp_manager, system_prompt=system_prompt).run(prompt)
             team_runtime.shutdown()
             scheduler.stop()
         finally:

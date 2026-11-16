@@ -2189,3 +2189,178 @@ message_type = shutdown_response
 - 计划批准时绑定 task/version，防止旧计划在任务变化后继续生效。
 
 本次回归测试结果：`45 passed`。
+## 29. 第十六课：MCP Tools（s14）
+
+### 29.1 本课目标
+
+前面的工具都由项目代码直接定义：工具名称、参数 schema 和 Python handler 全部写在本地。s14 把工具来源抽象成 MCP server：Harness 连接 server，获取工具列表，再把外部工具动态注册到当前 `ToolRegistry`。
+
+本课使用进程内模拟 server，展示 MCP 的协议边界，不实现真实网络 transport。这样可以先理解“发现与调用”的架构，再在后续接入真实服务。
+
+### 29.2 新增模块
+
+- `src/personal_agent/mcp.py`：MCPClient、模拟 docs/deploy server、名称规范化和 MCPManager。
+- `src/personal_agent/tools/mcp.py`：把 `connect_mcp` 暴露给 Agent，并动态注册发现的工具。
+- `tests/test_mcp.py`：连接、发现、调用和名称规范化测试。
+
+### 29.3 MCP 的两个核心动作
+
+MCP 在本课中被拆成两个动作：
+
+```text
+tools/list
+  → server 返回工具定义
+
+tools/call
+  → host 使用工具名和参数调用 server
+```
+
+`MCPClient.list_tools()` 返回 `MCPTool` 列表；`MCPClient.call_tool()` 根据原始工具名找到 handler，并把异常转换成 `MCP error` 字符串，使错误留在工具结果边界内。
+
+### 29.4 `MCPTool`
+
+每个发现的工具包含：
+
+- `name`：server 内部原始名称，例如 `search`。
+- `description`：给模型看的用途说明。
+- `input_schema`：参数 JSON Schema。
+- `handler`：server 的实际调用入口。
+- `read_only`：描述是否只读；它是 server 提供的元数据，不能单独成为宿主授权依据。
+
+### 29.5 `MCPManager`
+
+`MCPManager` 保存已经连接的 server：
+
+```python
+self.clients: dict[str, MCPClient]
+```
+
+`connect(server_name)` 检查 server 是否存在、创建 client，并返回发现的原始工具名。当前模拟 server 有：
+
+- `docs`：`search`、`get_version`。
+- `deploy`：`status`、`trigger`。
+
+### 29.6 动态工具池
+
+Agent 启动时只看到：
+
+```text
+connect_mcp
+```
+
+当模型调用：
+
+```json
+{"server": "docs"}
+```
+
+`connect_mcp` 会：
+
+```text
+MCPManager.connect("docs")
+  ↓
+list_tools()
+  ↓
+_register_discovered()
+  ↓
+ToolRegistry.register()
+```
+
+下一轮 DeepSeek 请求的工具 schema 中就会出现：
+
+```text
+mcp__docs__search
+mcp__docs__get_version
+```
+
+AgentLoop 本身没有改成另一套循环，仍然是：
+
+```text
+给模型当前 schemas
+  ↓
+模型选择工具
+  ↓
+ToolRegistry.execute_call()
+  ↓
+MCPClient.call_tool()
+  ↓
+追加 tool result
+```
+
+### 29.7 为什么工具名必须加前缀
+
+不同 server 可能都提供同名工具：
+
+```text
+docs.search
+deploy.search
+```
+
+因此主机将名称转换为：
+
+```text
+mcp__docs__search
+mcp__deploy__search
+```
+
+`normalize_mcp_name()` 会把点号等不适合作为工具名的字符转换成下划线，并检查：
+
+- 规范化后是否冲突；
+- 名称是否超过 64 字符。
+
+注册 handler 时使用默认参数保存当前 `client` 和原始工具名，避免循环中的 lambda 全部错误地指向最后一个工具。
+
+### 29.8 权限边界
+
+MCP server 的 `read_only` 或描述字段不能直接授权。当前宿主策略明确允许：
+
+```text
+mcp__docs__search
+mcp__docs__get_version
+mcp__deploy__status
+```
+
+而部署触发属于修改型操作，会进入现有 `PermissionPolicy` 的确认流程：
+
+```text
+mcp__deploy__trigger
+```
+
+这体现了一个重要原则：
+
+> 外部 server 提供能力和元数据，宿主决定是否授权。
+
+### 29.9 错误处理
+
+如果模型调用不存在的外部工具：
+
+```text
+MCP error: unknown tool '...'
+```
+
+如果参数缺失或 handler 抛出异常：
+
+```text
+MCP error: TypeError: ...
+```
+
+错误会作为工具结果返回给 DeepSeek，而不是直接让 AgentLoop 崩溃。模型可以根据错误在下一轮修正参数。
+
+### 29.10 自测思路
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_mcp.py -q --basetemp=.pytest-run-s14-mcp
+```
+
+完整回归结果：`47 passed`。
+
+### 29.11 当前边界
+
+本课实现的是 MCP 的核心抽象和动态工具池，不是完整的网络 MCP 客户端：
+
+- server 是进程内模拟对象；
+- 没有 stdio、HTTP 或 SSE transport；
+- 没有 server 进程生命周期管理；
+- 当前连接状态只存在本次 Agent 进程中。
+
+这些属于 transport 和宿主集成问题，下一阶段再处理，不影响本课对工具发现、命名、注册、调用和授权边界的学习。
