@@ -7,6 +7,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
+from .tasks import TaskStore, Task
 
 
 @dataclass
@@ -57,6 +58,9 @@ class MessageBus:
                 self._condition.wait(remaining)
             return self.read(agent)
 
+    def read_lead(self) -> list[TeamMessage]:
+        return self.read("lead")
+
 
 @dataclass
 class Teammate:
@@ -69,9 +73,10 @@ class Teammate:
 class TeamRuntime:
     """Lead-owned runtime for spawning and messaging persistent teammates."""
 
-    def __init__(self, workspace: Path, worker: Callable[[str, str], str]):
+    def __init__(self, workspace: Path, worker: Callable[[str, str], str], task_store: TaskStore | None = None):
         self.bus = MessageBus(workspace)
         self.worker = worker
+        self.task_store = task_store
         self.teammates: dict[str, Teammate] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
@@ -101,6 +106,21 @@ class TeamRuntime:
         with self._lock:
             return list(self.teammates.values())
 
+    def consume_lead_inbox(self) -> list[TeamMessage]:
+        return self.bus.read_lead()
+
+    def claim_next_task(self, owner: str) -> Task | None:
+        if self.task_store is None:
+            return None
+        for task in self.task_store.list():
+            if task.status != "pending" or self.task_store.incomplete_dependencies(task):
+                continue
+            try:
+                return self.task_store.claim(task.id, owner)
+            except ValueError:
+                continue
+        return None
+
     def shutdown(self) -> None:
         self._stop.set()
         for name in list(self.teammates):
@@ -126,4 +146,8 @@ class TeamRuntime:
                 if message.content.strip():
                     task = message.content
                     break
+            else:
+                claimed = self.claim_next_task(name)
+                if claimed is not None:
+                    task = f"{claimed.subject}\n{claimed.description}".strip()
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -25,6 +26,7 @@ class TaskStore:
 
     def __init__(self, workspace: Path):
         self.root = workspace.resolve() / ".tasks"
+        self._lock = threading.Lock()
 
     def create(self, subject: str, description: str = "") -> Task:
         subject = subject.strip()
@@ -54,7 +56,10 @@ class TaskStore:
         if task.status not in self.VALID_STATUSES:
             raise ValueError(f"invalid task status: {task.status}")
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / f"{task.id}.json").write_text(json.dumps(asdict(task), ensure_ascii=False, indent=2), encoding="utf-8")
+        path = self.root / f"{task.id}.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(asdict(task), ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(path)
 
     def list(self) -> list[Task]:
         if not self.root.is_dir():
@@ -89,15 +94,16 @@ class TaskStore:
         return task
 
     def claim(self, task_id: str, owner: str = "agent") -> Task:
-        task = self.get(task_id)
-        if task.status != "pending":
-            raise ValueError(f"task is {task.status}, cannot claim")
-        blocked = self.incomplete_dependencies(task)
-        if blocked:
-            raise ValueError(f"task is blocked by: {', '.join(blocked)}")
-        task.owner, task.status = owner, "in_progress"
-        self.save(task)
-        return task
+        with self._lock:
+            task = self.get(task_id)
+            if task.status != "pending":
+                raise ValueError(f"task is {task.status}, cannot claim")
+            blocked = self.incomplete_dependencies(task)
+            if blocked:
+                raise ValueError(f"task is blocked by: {', '.join(blocked)}")
+            task.owner, task.status = owner, "in_progress"
+            self.save(task)
+            return task
 
     def complete(self, task_id: str, owner: str = "agent") -> Task:
         task = self.get(task_id)

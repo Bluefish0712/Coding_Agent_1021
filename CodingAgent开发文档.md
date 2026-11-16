@@ -1951,3 +1951,147 @@ content = teammate_xxx completed: tests passed
 ```
 
 本课完成后的完整回归结果：`43 passed`。
+## 27. 第十五课后半：团队事件投递与共享任务认领
+
+### 27.1 本次增加的两个能力
+
+上一部分已经实现了“Lead 创建队友”和“队友向收件箱发送结果”，但还缺少两个关键闭环：Lead 不会自动看到队友结果，空闲队友也不会主动寻找共享任务。本次补齐了这两个能力。
+
+1. `AgentLoop` 每一轮开始时调用 `TeamRuntime.consume_lead_inbox()`，把收件箱中的事件注入 Lead 的上下文。
+2. 队友进入 IDLE 后，如果没有直接消息，会调用 `claim_next_task()` 扫描 `TaskStore`，寻找依赖已完成、状态为 `pending` 的任务。
+3. `TaskStore.claim()` 使用进程内锁完成“读取、检查、写回”这一整段操作，避免两个线程同时认领同一个任务。
+4. 任务保存改为临时文件替换，避免写入过程中留下半截 JSON。
+
+### 27.2 Lead 事件投递
+
+队友完成工作后，发送：
+
+```text
+teammate_xxx → .mailboxes/lead.jsonl
+```
+
+下一轮 Lead AgentLoop 开始时：
+
+```text
+consume_lead_inbox()
+  → read_lead()
+  → 消费 lead.jsonl
+  → 生成 [Team events]
+  → 追加到 Lead messages
+  → DeepSeek 看到队友结果
+```
+
+这一步没有让队友直接修改 Lead 的 `messages` 列表。消息总线仍然是两个 Agent 之间的边界，避免并发线程直接共享推理上下文。
+
+### 27.3 为什么事件要在每轮开始时注入
+
+`AgentLoop` 的一轮逻辑是：
+
+```text
+准备外部事件
+  ↓
+调用 DeepSeek
+  ↓
+执行工具
+  ↓
+追加工具结果
+```
+
+团队事件放在调用 DeepSeek 之前，模型才能在本轮推理中使用结果。例如队友报告测试失败，Lead 就能在下一轮决定通知另一个队友修复。
+
+当前实现是“下一轮投递”，不是一个独立的长期 Lead 事件循环。CLI 仍然是一次性命令，因此如果 Lead 已经结束，收件箱中的事件不会自动启动一个全新的 CLI 进程。
+
+### 27.4 共享任务认领
+
+空闲队友的工作顺序现在是：
+
+```text
+IDLE
+  ↓
+优先读取直接消息
+  ↓ 没有消息
+扫描 TaskStore
+  ↓
+筛选 pending 且依赖已完成的任务
+  ↓
+claim(task_id, teammate_name)
+  ↓ 成功
+WORKING
+```
+
+直接消息优先于自动认领，因为 Lead 的明确指令比队友自己发现的任务具有更高优先级。
+
+### 27.5 为什么“发现”和“认领”必须分开
+
+扫描任务只是得到一个瞬时列表：
+
+```text
+队友 A 看到 task_1 ready
+队友 B 也看到 task_1 ready
+```
+
+真正的所有权变更发生在 `claim()` 中。`claim()` 会重新读取任务并检查：
+
+- 状态是否仍然是 `pending`；
+- 依赖是否全部完成；
+- 然后写入 `owner` 和 `in_progress`。
+
+因此即使多个队友同时发现同一任务，也只有第一个成功写入的人能认领它，其他队友会发现任务已经不是 `pending`。
+
+### 27.6 `TaskStore` 的原子保存
+
+任务保存现在先写临时文件：
+
+```text
+task_xxxx.json.tmp
+```
+
+写入完成后再替换正式文件：
+
+```text
+temporary.replace(path)
+```
+
+这样可以降低程序在写文件过程中崩溃，导致正式 JSON 只写了一半的风险。这是“原子替换”的简化实现。
+
+### 27.7 当前完整 s13 流程
+
+```text
+用户 → Lead AgentLoop
+          ↓
+     提出团队方案
+          ↓
+     spawn_teammate
+          ↓
+     TeamRuntime 启动队友线程
+          ↓
+     队友独立 AgentLoop
+          ↓
+     result → MessageBus → lead.jsonl
+          ↓
+     Lead 下一轮 consume_lead_inbox()
+          ↓
+     DeepSeek 看到 [Team events]
+
+空闲队友：
+     直接消息优先
+          ↓ 没有直接消息
+     扫描共享任务板
+          ↓
+     原子 claim ready task
+          ↓
+     继续 WORK
+```
+
+### 27.8 与完整参考 s13 的剩余差距
+
+当前项目已经覆盖团队通信、Lead 事件投递、队友生命周期和基础共享任务认领。参考项目中的以下机制仍可作为后续增强：
+
+- 跨进程文件锁，而不只是当前进程内的线程锁；
+- 每个任务绑定独立 Git worktree；
+- 任务 owner 与工作目录 assignment 的恢复；
+- 结构化 shutdown request/response 的 request_id；
+- 计划审批闸门，在计划批准前阻止写文件和执行命令；
+- 长期交互式 Lead 会话，收到队友事件后自动唤醒。
+
+本次回归测试结果：`44 passed`。

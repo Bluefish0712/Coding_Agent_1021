@@ -64,6 +64,10 @@ class AgentLoop:
         messages.append({"role": "user", "content": user_input})
 
         for _ in range(self.max_turns):
+            if self.team_runtime is not None:
+                team_events = self.team_runtime.consume_lead_inbox()
+                if team_events:
+                    messages.append({"role": "user", "content": "[Team events]\n" + "\n".join(f"{event.message_type}: {event.sender} -> {event.content}" for event in team_events)})
             notifications = self.background.collect()
             for notification in notifications:
                 messages.append({"role": "user", "content": notification})
