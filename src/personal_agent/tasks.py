@@ -15,6 +15,7 @@ class Task:
     status: str = "pending"
     owner: str | None = None
     blocked_by: list[str] | None = None
+    worktree: str | None = None
 
     def __post_init__(self) -> None:
         if self.blocked_by is None:

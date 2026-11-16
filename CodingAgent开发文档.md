@@ -2095,3 +2095,97 @@ temporary.replace(path)
 - 长期交互式 Lead 会话，收到队友事件后自动唤醒。
 
 本次回归测试结果：`44 passed`。
+## 28. s13 可实现部分补齐：worktree、计划协议与结构化关机
+
+### 28.1 本次补齐内容
+
+本次在基础团队运行时上继续加入了三个完整能力：
+
+- `WorktreeManager`：为尚未认领的任务创建 Git worktree，并把路径绑定到任务。
+- 计划协议：Lead 可以向队友发送计划请求，并批准或拒绝计划。
+- 结构化关机：单独请求某个队友平滑退出，而不是只能关闭整个团队。
+
+### 28.2 Task.worktree
+
+任务现在可以保存：
+
+```python
+worktree: str | None = None
+```
+
+它表示该任务是否绑定了独立工作目录。任务的生命周期是：
+
+```text
+pending + 无 owner + 无 worktree
+    ↓ create_task_worktree
+pending + worktree
+    ↓ claim_task
+in_progress + owner + worktree
+```
+
+创建 worktree 只允许发生在任务还没有被认领时，避免任务已经开始后再改变工作目录。
+
+### 28.3 WorktreeManager.create
+
+`create(name, task_id)` 会依次：
+
+1. 验证 worktree 名称，防止路径穿越和非法分支名。
+2. 读取任务并确认它是未认领的 pending 任务。
+3. 执行 `git worktree add -b wt/<name> .worktrees/<name>`。
+4. Git 成功后，才把 worktree 路径写回任务。
+
+这遵守“外部操作成功后再更新元数据”的顺序。当前只提供创建，不自动删除 worktree；因为删除可能丢失未提交改动，必须由宿主或用户明确确认。
+
+### 28.4 计划审批协议
+
+队友的 `plan_status` 有四种状态：
+
+```text
+not_required → pending → approved
+                       ↘ rejected
+```
+
+`request_teammate_plan` 发送 `plan_request`，让队友进入 `pending`。在 `pending` 或 `rejected` 状态下，队友循环不会执行新的工作，也不会自动认领任务。Lead 调用 `approve_teammate_plan` 后，队友收到结构化的 `plan_approval_response`，批准后才恢复工作。
+
+这个机制体现了“状态闸门”：计划审批不是普通文本提示，而是运行时状态；运行时根据状态决定是否允许进入 WORK。
+
+### 28.5 结构化关机
+
+`shutdown_teammate` 会发送：
+
+```text
+message_type = shutdown_request
+metadata.request_id = shutdown_xxxx
+```
+
+队友完成当前消息处理后发送：
+
+```text
+message_type = shutdown_response
+```
+
+`request_id` 为后续多个并发协议请求的对应关系预留。整个团队关闭时，`TeamRuntime.shutdown()` 会对所有队友发送同样的平滑关机请求。
+
+### 28.6 当前 s13 的完整能力边界
+
+现在已经实现：
+
+- Lead 和队友独立 Agent Loop；
+- JSONL 文件收件箱和 Condition 唤醒；
+- result、普通消息和 shutdown 协议；
+- Lead 下一轮自动消费团队事件；
+- 队友 IDLE 自动扫描并认领 ready task；
+- 任务依赖检查、owner 和 worktree 字段；
+- 基础线程安全认领和原子任务保存；
+- 创建并绑定 Git worktree；
+- 计划审批状态闸门。
+
+仍然需要宿主层进一步增强的部分：
+
+- Windows 多进程级文件锁；
+- worktree 清理前的完整 Git 状态检查和人工确认界面；
+- 进程重启后的队友线程恢复；
+- 真正持续运行的交互式 Lead 会话；
+- 计划批准时绑定 task/version，防止旧计划在任务变化后继续生效。
+
+本次回归测试结果：`45 passed`。

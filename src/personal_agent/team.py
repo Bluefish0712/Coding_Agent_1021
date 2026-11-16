@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
 from .tasks import TaskStore, Task
+from .worktrees import WorktreeManager
 
 
 @dataclass
@@ -68,6 +69,8 @@ class Teammate:
     role: str
     status: str = "idle"
     current_task: str | None = None
+    task_id: str | None = None
+    plan_status: str = "not_required"
 
 
 class TeamRuntime:
@@ -77,6 +80,8 @@ class TeamRuntime:
         self.bus = MessageBus(workspace)
         self.worker = worker
         self.task_store = task_store
+        self.worktrees = WorktreeManager(workspace, task_store) if task_store else None
+        self.plans: dict[str, str] = {}
         self.teammates: dict[str, Teammate] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._stop = threading.Event()
@@ -121,6 +126,37 @@ class TeamRuntime:
                 continue
         return None
 
+    def create_worktree(self, name: str, task_id: str) -> Path:
+        if self.worktrees is None:
+            raise ValueError("task store is not configured")
+        return self.worktrees.create(name, task_id)
+
+    def request_plan(self, teammate: str, plan: str) -> str:
+        with self._lock:
+            item = self.teammates.get(teammate)
+            if item is None:
+                raise ValueError(f"teammate not found: {teammate}")
+            item.plan_status = "pending"
+            self.plans[teammate] = plan.strip()
+        self.bus.send("lead", teammate, plan, "plan_request")
+        return f"plan request sent to {teammate}"
+
+    def approve_plan(self, teammate: str, approved: bool, feedback: str = "") -> str:
+        with self._lock:
+            item = self.teammates.get(teammate)
+            if item is None:
+                raise ValueError(f"teammate not found: {teammate}")
+            item.plan_status = "approved" if approved else "rejected"
+        self.bus.send("lead", teammate, "approved" if approved else "rejected", "plan_approval_response", {"feedback": feedback})
+        return f"plan {item.plan_status}: {teammate}"
+
+    def request_shutdown(self, teammate: str) -> str:
+        with self._lock:
+            if teammate not in self.teammates:
+                raise ValueError(f"teammate not found: {teammate}")
+        self.bus.send("lead", teammate, "shutdown", "shutdown_request", {"request_id": f"shutdown_{secrets.token_hex(4)}"})
+        return f"shutdown requested: {teammate}"
+
     def shutdown(self) -> None:
         self._stop.set()
         for name in list(self.teammates):
@@ -133,6 +169,10 @@ class TeamRuntime:
         while not self._stop.is_set():
             with self._lock:
                 self.teammates[name].status = "working"
+                plan_status = self.teammates[name].plan_status
+            if plan_status in {"pending", "rejected"}:
+                time.sleep(0.1)
+                continue
             result = self.worker(name, task)
             self.bus.send(name, "lead", result, "result")
             with self._lock:
@@ -143,11 +183,19 @@ class TeamRuntime:
                 if message.message_type == "shutdown_request":
                     self.bus.send(name, "lead", "teammate stopped", "shutdown_response")
                     return
+                if message.message_type == "plan_request":
+                    with self._lock:
+                        self.teammates[name].plan_status = "pending"
+                    continue
+                if message.message_type == "plan_approval_response":
+                    with self._lock:
+                        self.teammates[name].plan_status = "approved" if message.content == "approved" else "rejected"
+                    continue
                 if message.content.strip():
                     task = message.content
                     break
             else:
-                claimed = self.claim_next_task(name)
+                claimed = self.claim_next_task(name) if self.teammates[name].plan_status == "not_required" else None
                 if claimed is not None:
                     task = f"{claimed.subject}\n{claimed.description}".strip()
 

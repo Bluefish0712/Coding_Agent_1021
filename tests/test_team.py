@@ -2,6 +2,7 @@ from pathlib import Path
 
 from personal_agent.team import MessageBus, TeamRuntime
 from personal_agent.tasks import TaskStore
+from personal_agent.worktrees import WorktreeManager
 
 
 def test_message_bus_round_trip(tmp_path: Path):
@@ -32,4 +33,20 @@ def test_idle_teammate_claims_ready_task(tmp_path: Path):
     claimed = runtime.claim_next_task(teammate.name)
     assert claimed is not None
     assert any(task.status == "in_progress" and task.owner == teammate.name for task in store.list())
+    runtime.shutdown()
+
+
+def test_plan_protocol_and_worktree_validation(tmp_path: Path):
+    store = TaskStore(tmp_path)
+    task = store.create("isolated task")
+    runtime = TeamRuntime(tmp_path, lambda name, task: "done")
+    teammate = runtime.spawn("worker", "initial")
+    assert "request sent" in runtime.request_plan(teammate.name, "read files first")
+    assert "approved" in runtime.approve_plan(teammate.name, True)
+    assert runtime.list_teammates()[0].plan_status == "approved"
+    try:
+        WorktreeManager(tmp_path, store).create("bad name!", task.id)
+        assert False
+    except ValueError as exc:
+        assert "invalid worktree" in str(exc)
     runtime.shutdown()
