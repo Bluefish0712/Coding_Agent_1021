@@ -61,6 +61,32 @@ def test_loop_stops_after_max_turns():
         http_client.close()
 
 
+def test_goal_loop_uses_separate_read_only_evaluator_and_continues():
+    requests = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if len(requests) == 1:
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "I have not run tests yet."}, "finish_reason": "stop"}]})
+        if len(requests) == 2:
+            assert payload.get("tools") in (None, [])
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": '{"ok":false,"reason":"No test result yet","impossible":false}'}, "finish_reason": "stop"}]})
+        if len(requests) == 3:
+            assert "Goal is not complete yet" in payload["messages"][-1]["content"]
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "pytest exit_code: 0; all tests passed."}, "finish_reason": "stop"}]})
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": '{"ok":true,"reason":"The conversation includes pytest exit_code 0.","impossible":false}'}, "finish_reason": "stop"}]})
+
+    http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = DeepSeekClient(Settings(api_key="test-key"), http_client=http_client)
+    try:
+        answer = AgentLoop(client, max_turns=4).run("/goal pytest exits with code 0")
+        assert answer == "pytest exit_code: 0; all tests passed."
+        assert len(requests) == 4
+    finally:
+        http_client.close()
+
+
 def test_subagent_uses_fresh_context_and_returns_final_text():
     requests = []
 

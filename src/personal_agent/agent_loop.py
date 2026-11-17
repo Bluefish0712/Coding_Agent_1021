@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 from pathlib import Path
 
@@ -28,10 +29,11 @@ from .mcp import MCPManager
 from .tools.mcp import create_mcp_tools
 from .workflow import WorkflowRuntime
 from .tools.workflow import create_workflow_tools
+from .goal import GoalController, GoalEvaluator
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None, memory_store: MemoryStore | None = None, task_store: TaskStore | None = None, scheduler: CronScheduler | None = None, team_runtime: TeamRuntime | None = None, mcp_manager: MCPManager | None = None, workflow_runtime: WorkflowRuntime | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None, memory_store: MemoryStore | None = None, task_store: TaskStore | None = None, scheduler: CronScheduler | None = None, team_runtime: TeamRuntime | None = None, mcp_manager: MCPManager | None = None, workflow_runtime: WorkflowRuntime | None = None, goal_controller: GoalController | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
@@ -43,6 +45,7 @@ class AgentLoop:
         self.team_runtime = team_runtime
         self.mcp_manager = mcp_manager
         self.workflow_runtime = workflow_runtime
+        self.goal = goal_controller or GoalController(GoalEvaluator(client))
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
         default_tools.extend(create_command_tools(workspace or Path.cwd(), self.background))
@@ -72,8 +75,19 @@ class AgentLoop:
         messages: list[dict[str, Any]] = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
+        if user_input.startswith("/goal"):
+            command = user_input[len("/goal"):].strip()
+            if command.lower() in {"clear", "stop", "off", "reset", "none", "cancel"}:
+                self.goal.clear()
+                return "Goal cleared."
+            if not command:
+                status = self.goal.status()
+                return json.dumps(status, ensure_ascii=False) if status else "No active goal. Use /goal <completion condition> to start one."
+            self.goal.set(command)
+            user_input = f"Work toward this goal. Use tools to make progress and report concrete evidence: {command}"
         messages.append({"role": "user", "content": user_input})
 
+        blocked_stops = 0
         for _ in range(self.max_turns):
             if self.team_runtime is not None:
                 team_events = self.team_runtime.consume_lead_inbox()
@@ -91,7 +105,22 @@ class AgentLoop:
             messages.append(assistant_message)
             tool_calls = assistant_message.get("tool_calls", [])
             if not tool_calls:
-                return assistant_message.get("content") or ""
+                final_text = assistant_message.get("content") or ""
+                if self.goal.state is None:
+                    return final_text
+                messages.append({"role": "assistant", "content": final_text})
+                pending_background = any(task.status == "running" for task in self.background.tasks.values())
+                decision = self.goal.evaluate_after_turn(messages, pending_background=pending_background)
+                if decision.action == "complete":
+                    self.goal.clear()
+                    return final_text
+                if decision.action in {"continue", "defer"}:
+                    blocked_stops += 1
+                    if blocked_stops >= self.max_turns:
+                        break
+                    messages.append({"role": "user", "content": f"Goal is not complete yet. Continue working. Reason: {decision.reason}"})
+                    continue
+                return f"Goal stopped with status {self.goal.state.status if self.goal.state else decision.action}: {decision.reason}\nLast response: {final_text}"
 
             compact_requested = False
             for call in tool_calls:
@@ -105,5 +134,8 @@ class AgentLoop:
             if compact_requested:
                 messages = self.compactor.compact(messages, user_input, reason="requested")
 
+        if self.goal.state is not None:
+            status = self.goal.state.status
+            return f"Goal remains {status}. Turn limit reached; it was not marked complete. Last check: {self.goal.state.last_reason}"
         raise DeepSeekError(f"agent stopped after {self.max_turns} turns")
 

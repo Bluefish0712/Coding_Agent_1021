@@ -2566,3 +2566,97 @@ DeepSeek 调用参数包括：
 - 工作流子 Agent 直接使用 DeepSeekClient，不携带主 Agent 的工具池。
 - 输出校验覆盖常用 JSON 类型和必填字段，尚不是完整 JSON Schema 实现。
 - 失败输出不会缓存，也暂未自动重试。
+## 32. 第十九课：Goal Loop（s17）
+
+### 32.1 本课目标
+
+s16 的 Workflow 固定一类工作的步骤；s17 判断用户的最终目标是否已经完成。主模型停止调用工具只代表当前一轮结束，不能证明目标满足，因此在 AgentLoop 的自然结束位置加入 Goal Gate。
+
+### 32.2 新增模块
+
+- `src/personal_agent/goal.py`：GoalState、GoalDecision、GoalEvaluator 和 GoalController。
+- `tests/test_agent_loop.py`：新增完整 Goal 闭环测试。
+
+### 32.3 `/goal` 命令
+
+在 `AgentLoop.run()` 中识别：
+
+- `/goal <条件>`：创建/替换本次会话的目标，并立即开始执行；
+- `/goal`：显示当前 Goal 状态；
+- `/goal clear`：清除目标；`stop/off/reset/none/cancel` 也作为清除别名。
+
+Goal 当前是单次 AgentLoop 会话级状态，不会跨 CLI 进程自动恢复。
+
+### 32.4 GoalState 与 GoalDecision
+
+`GoalState` 保存完成条件、开始时间、判断次数、最近原因和状态。`GoalDecision` 使用 `action` 表达判断：
+
+- `complete`：证据足以证明目标完成；
+- `continue`：还缺证据或还没完成；
+- `impossible`：判断器认为目标无法完成；
+- `defer`：后台工作还在运行，暂缓判断；
+- `stop`：判断器出错或达到自动续轮保护上限。
+
+### 32.5 PromptGoalEvaluator
+
+`GoalEvaluator.evaluate()` 使用独立 DeepSeek 请求，仅传入 Goal 条件和对话摘录，不提供工具 schema。因此判断器只能阅读证据，不能修改文件或运行测试。
+
+它要求返回 JSON：
+
+```json
+{"ok": false, "reason": "还没有 pytest 退出码", "impossible": false}
+```
+
+`ok` 为 true 时返回 complete；`impossible` 为 true 时返回 impossible；否则返回 continue。无效 JSON 会作为评估错误处理，不会被当作完成。
+
+对话摘录最多保留 24000 字符；太长时保留开头和结尾，中间用省略标记替代。
+
+### 32.6 GoalController
+
+`set()` 设置目标并重置续轮计数；`clear()` 清除；`status()` 返回状态和经过时间；`restore()` 为未来宿主持久化恢复预留接口；`evaluate_after_turn()` 是 Stop Gate。
+
+Stop Gate 的决策顺序是：
+
+1. 没有 Goal：放行普通退出。
+2. 后台任务仍运行：返回 defer，不调用判断模型。
+3. 调用独立 evaluator 判断对话证据。
+4. 完成或不可能：结束 Goal。
+5. 未完成：返回 continue，并记录原因。
+6. evaluator 出错或连续续轮达到上限：停止自动循环，保留 Goal 状态，不声称完成。
+
+### 32.7 AgentLoop 的接入点
+
+主模型返回没有 tool calls 时，AgentLoop 不再总是立即 return：
+
+```text
+无活跃 Goal → 返回主模型文本
+有活跃 Goal → 调用 GoalController.evaluate_after_turn()
+  complete → 清除 Goal 并返回
+  continue  → 把判断原因加回同一 messages，进入下一轮
+  defer     → 提示等待后台结果后继续
+  stop      → 返回停止原因并保留状态
+```
+
+Goal 没有自己的第二条 Agent 主循环；它挂在现有循环的停止位置，并通过同一份 `messages` 让主模型继续。
+
+### 32.8 全局上限
+
+Goal 不拥有无限预算。AgentLoop 原有 `max_turns` 仍是整个请求的总轮数限制；GoalController 另有连续阻止退出次数保护。到达限制时，返回“目标仍未完成”的状态和最近判断原因，不能伪装成功。
+
+### 32.9 与 s16 Workflow 的关系
+
+Workflow 回答“这类工作按哪些步骤执行”；Goal Loop 回答“这些步骤或普通工具执行后，整体目标是否已经达成”。Workflow 结束后，主模型的结果和工具证据仍在对话中，Goal Evaluator 可以据此决定是否继续。
+
+### 32.10 自测
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_agent_loop.py -q --basetemp=.pytest-run-s17-study
+```
+
+新增测试模拟：主模型第一次停止时没有测试证据，Goal Evaluator 要求继续；主模型第二轮给出退出码 0；判断器据此批准完成。全量回归结果：`52 passed`。
+
+### 32.11 当前限制
+
+- CLI 是一次性调用，Goal 状态仅存在当前 AgentLoop 内存中；跨进程恢复需要宿主保存并传回 `goal_status`。
+- 当前后台工作未完成时会 defer，但一次性 CLI 没有长期等待输入/通知的会话循环，因此更适合前台同步验证任务。
+- Goal Evaluator 依赖对话中的工具结果证据；它不是独立测试执行器，也不能证明对话中没有呈现的外部事实。
