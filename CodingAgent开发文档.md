@@ -2462,3 +2462,107 @@ with AgentHarness(...) as harness:
 本课完成了集成结构，但没有假装所有机制都已经达到参考项目的完整生产级实现。当前项目已经统一拥有前面各课组件；后台、cron、team 事件仍受当前一次性 CLI 生命周期限制，真实 MCP transport 和长期交互式 Lead 仍是后续增强方向。
 
 本次回归测试结果：`48 passed`。
+## 31. 第十八课：Workflow Runtime（s16）
+
+### 31.1 本课目标
+
+s15 的主循环让模型在每一步动态决定调用什么工具。s16 增加保存好的 Workflow：当步骤和顺序预先确定时，由宿主脚本负责编排多个子 Agent 调用，模型负责完成其中的单步分析。
+
+本课注册了 `review-changes` 工作流。它会并行从 correctness、security、tests 三个维度审查输入的变更内容，要求每个子 Agent 返回包含 `findings` 数组的 JSON，然后汇总结果。
+
+### 31.2 新增文件
+
+- `src/personal_agent/workflow.py`：工作流元数据、运行状态、journal、上下文原语、运行时和示例审查流程。
+- `src/personal_agent/tools/workflow.py`：把保存好的工作流注册成 `run_workflow` 工具。
+- `tests/test_workflow.py`：并行调用、缓存续跑、失败恢复和输入校验测试。
+
+### 31.3 关键区别：Task 与 Workflow
+
+Task 是一条工作记录，描述“需要做什么、谁负责、当前状态是什么”。Workflow 是一段已写好的执行程序，描述“按什么步骤完成一类重复工作”。
+
+```text
+Task：一个任务节点和它的状态
+Workflow：一段可重复执行、可以恢复的编排脚本
+```
+
+Workflow 运行时保存到 `.workflows/`；任务系统仍保存到 `.tasks/`，两者职责分开。
+
+### 31.4 元数据与运行记录
+
+`WorkflowMeta` 保存可信的工作流名称、说明和阶段列表。名称使用安全 slug 校验，避免运行记录文件名被路径字符影响。
+
+`WorkflowRun` 保存一次执行：
+
+- `run_id`：恢复这次运行时使用的 ID；
+- `workflow` 和 `args`：工作流身份及输入；
+- `status`：running、completed 或 failed；
+- `phase`、`progress`：阶段和进度事件；
+- `result`、`error`：成功结果或失败信息；
+- `agent_calls`：本次执行实际调用子 Agent 的次数，缓存命中不计入。
+
+运行快照保存在 `.workflows/<run_id>.json`，每个子 Agent 的成功结果追加到 `.workflows/<run_id>.journal.jsonl`。
+
+### 31.5 `WorkflowJournal`
+
+Journal 是断点恢复的核心。每次 `agent()` 成功并通过输出校验后，按稳定 key 将结果追加到 JSONL 文件。
+
+稳定 key 由 `label`、prompt 和 schema 计算 SHA-256。续跑时相同调用得到相同 key，就直接使用缓存，不再请求 DeepSeek。并行任务的完成顺序不会影响 key，因此不使用“第几个完成”作为索引。
+
+失败或无效输出不会写入 journal；续跑时只会重新执行缺少成功记录的调用。
+
+### 31.6 `WorkflowContext` 原语
+
+- `phase(title)`：记录阶段切换。
+- `log(message)`：记录一条进度文本。
+- `agent(prompt, schema, label)`：执行一个子 Agent 调用；成功后校验并写入 journal。
+- `parallel(calls)`：使用线程池并发执行一组调用，并按输入顺序收集结果。
+- `pipeline(items, *stages)`：每个 item 按顺序通过各 stage，不同 item 之间并行。
+
+本实现使用 `ThreadPoolExecutor`。在当前 Windows 环境中，asyncio 默认事件循环在 socketpair 初始化时阻塞，因此没有沿用参考代码的 asyncio 写法；线程池仍然能表达并行与等齐屏障，并且可直接与同步 ToolRegistry 集成。
+
+### 31.7 `WorkflowRuntime.run`
+
+`run()` 的流程是：
+
+1. 校验注册的 WorkflowMeta。
+2. 创建新的 run ID，或校验用户提供的 resume ID。
+3. 续跑时检查保存的 workflow 名称和参数必须与本次一致。
+4. 读取已有 journal。
+5. 执行可信的 Python workflow 函数。
+6. 成功或异常后更新快照状态和结果。
+
+工具参数只允许选择宿主注册的 `review-changes` 并传递普通数据，不允许模型提交 Python 代码或 workflow 函数。
+
+### 31.8 结构化输出
+
+`WorkflowContext._validate_json()` 把子 Agent 的字符串解析成 JSON 对象，并检查必填字段和基础字段类型。例如本课要求：
+
+```json
+{"findings": []}
+```
+
+解析失败、缺字段或字段类型错误会使该步骤失败，且不会写入 journal。当前课程版没有做 schema 失败后的自动重试，避免把“重试策略”与“结构化校验”两个知识点混在一起；可在后续增强。
+
+### 31.9 工具接入
+
+`tools/workflow.py` 把 `run_workflow` 加入 AgentLoop 的正常工具池，因此仍经过同一个 ToolRegistry、PermissionPolicy 和 Hooks。工作流工具属于可能触发多次模型调用的操作，当前由 PermissionPolicy 要求用户确认。
+
+DeepSeek 调用参数包括：
+
+- `name`：注册工作流名称；
+- `args`：该工作流的输入；
+- `resume_from_run_id`：可选的续跑 ID。
+
+### 31.10 Windows 与并行错误语义
+
+并行调用会同时启动。某个调用失败时，线程池会等待已启动的工作结束，然后把失败报告给 Workflow；其他已成功的调用结果仍写入 journal。因而失败后续跑时，只有未成功记录的调用会重新请求模型。
+
+本次验证结果：`51 passed`。
+
+### 31.11 当前限制
+
+- 当前注册一个示例 Workflow，尚未支持动态插件式 Workflow registry。
+- 快照使用原子替换，journal 使用逐行追加；还没有跨进程 run lock。
+- 工作流子 Agent 直接使用 DeepSeekClient，不携带主 Agent 的工具池。
+- 输出校验覆盖常用 JSON 类型和必填字段，尚不是完整 JSON Schema 实现。
+- 失败输出不会缓存，也暂未自动重试。

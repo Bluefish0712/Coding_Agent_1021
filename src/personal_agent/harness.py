@@ -13,6 +13,7 @@ from .skills import SkillLoader, build_system_prompt
 from .tasks import TaskStore
 from .team import TeamRuntime
 from .tools.permissions import PermissionPolicy
+from .workflow import WorkflowRuntime, create_workflow_runner
 
 
 class AgentHarness:
@@ -29,6 +30,7 @@ class AgentHarness:
         self.tasks = TaskStore(self.workspace)
         self.scheduler = CronScheduler(self.workspace)
         self.mcp = MCPManager()
+        self.workflows = WorkflowRuntime(self.workspace, create_workflow_runner(self.client))
         self._closed = False
 
         def run_teammate(name: str, task: str) -> str:
@@ -51,7 +53,7 @@ class AgentHarness:
             + "\n\n"
             + self._runtime_context()
         )
-        return AgentLoop(
+        agent = AgentLoop(
             self.client,
             workspace=self.workspace,
             permission_policy=PermissionPolicy(self.approval_callback),
@@ -61,8 +63,10 @@ class AgentHarness:
             scheduler=self.scheduler,
             team_runtime=self.team,
             mcp_manager=self.mcp,
+            workflow_runtime=self.workflows,
             system_prompt=system_prompt,
         )
+        return agent
 
     def _runtime_context(self) -> str:
         connected = ", ".join(sorted(self.mcp.clients)) or "none"

@@ -10,7 +10,7 @@ ApprovalCallback = Callable[[str, dict[str, Any]], bool]
 class PermissionPolicy:
     """Small tool-level policy: read-only tools are allowed; risky tools ask."""
 
-    RISKY_TOOLS = frozenset({"write_file", "apply_patch", "run_command", "run_tests", "task", "remember", "create_task", "update_task", "claim_task", "complete_task", "schedule_cron", "cancel_cron", "spawn_teammate", "send_teammate", "create_task_worktree", "approve_teammate_plan", "shutdown_teammate"})
+    RISKY_TOOLS = frozenset({"write_file", "apply_patch", "run_command", "run_tests", "task", "remember", "create_task", "update_task", "claim_task", "complete_task", "schedule_cron", "cancel_cron", "spawn_teammate", "send_teammate", "create_task_worktree", "approve_teammate_plan", "shutdown_teammate", "run_workflow"})
     MCP_READ_ONLY = frozenset({"mcp__docs__search", "mcp__docs__get_version", "mcp__deploy__status"})
     _DANGEROUS_COMMAND = re.compile(
         r"(?i)(?:^|[;&|()\n])\s*(?:del|erase|rmdir|rd|rm|sudo|shutdown|reboot|format|mkfs|diskpart)\b"
