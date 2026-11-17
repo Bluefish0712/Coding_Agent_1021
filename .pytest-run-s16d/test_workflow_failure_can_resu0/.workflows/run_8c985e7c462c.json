@@ -1,0 +1,43 @@
+{
+  "run_id": "run_8c985e7c462c",
+  "workflow": "review-changes",
+  "args": {
+    "changes": "diff"
+  },
+  "status": "failed",
+  "phase": "Review",
+  "progress": [
+    {
+      "type": "phase",
+      "title": "Review"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "completed"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "completed"
+    }
+  ],
+  "result": null,
+  "error": "WorkflowInputError: agent output is not valid JSON: Expecting value: line 1 column 1 (char 0)",
+  "agent_calls": 3
+}

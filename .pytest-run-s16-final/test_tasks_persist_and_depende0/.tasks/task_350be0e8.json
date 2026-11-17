@@ -1,0 +1,11 @@
+{
+  "id": "task_350be0e8",
+  "subject": "create API",
+  "description": "",
+  "status": "in_progress",
+  "owner": "agent",
+  "blocked_by": [
+    "task_1f91f127"
+  ],
+  "worktree": null
+}

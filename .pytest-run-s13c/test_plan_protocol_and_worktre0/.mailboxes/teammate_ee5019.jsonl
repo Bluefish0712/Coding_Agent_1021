@@ -1,0 +1,3 @@
+{"sender": "lead", "recipient": "teammate_ee5019", "content": "read files first", "message_type": "plan_request", "metadata": {}}
+{"sender": "lead", "recipient": "teammate_ee5019", "content": "approved", "message_type": "plan_approval_response", "metadata": {"feedback": ""}}
+{"sender": "lead", "recipient": "teammate_ee5019", "content": "shutdown", "message_type": "shutdown_request", "metadata": {}}

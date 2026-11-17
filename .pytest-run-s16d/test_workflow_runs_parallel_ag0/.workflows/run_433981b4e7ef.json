@@ -1,0 +1,90 @@
+{
+  "run_id": "run_433981b4e7ef",
+  "workflow": "review-changes",
+  "args": {
+    "changes": "diff"
+  },
+  "status": "completed",
+  "phase": "Summary",
+  "progress": [
+    {
+      "type": "phase",
+      "title": "Review"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "completed"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "completed"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "completed"
+    },
+    {
+      "type": "phase",
+      "title": "Summary"
+    },
+    {
+      "type": "log",
+      "message": "Collected 0 findings across 3 review dimensions"
+    },
+    {
+      "type": "phase",
+      "title": "Review"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "cached"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "cached"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "cached"
+    },
+    {
+      "type": "phase",
+      "title": "Summary"
+    },
+    {
+      "type": "log",
+      "message": "Collected 0 findings across 3 review dimensions"
+    }
+  ],
+  "result": {
+    "findings": [],
+    "dimensions": [
+      "correctness",
+      "security",
+      "tests"
+    ]
+  },
+  "error": null,
+  "agent_calls": 3
+}

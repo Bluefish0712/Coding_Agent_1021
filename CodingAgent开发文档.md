@@ -3,7 +3,11 @@
 > 项目路径：`D:\GITHUBPROJECTS\AGENTPROJ_PERSONAL\Coding_Agent_1021`  
 > 参考项目：`D:\GITHUBPROJECTS\learn-claude-code`  
 > 当前模型：DeepSeek API / `deepseek-flash`  
-> 当前阶段：Phase 1 —— DeepSeek 客户端基线已完成，下一步实现 Agent Loop
+> 当前进度：s01–s17 学习主线已完成；对应核心组件已逐步实现并有模块测试。当前工作进入实现边界核对、可靠性与评测完善阶段，不表示所有能力均已达到生产级。
+> 核心模块：Agent Loop、工具注册与调用、权限与 Hooks、Todo、Subagent、Skills、上下文压缩、Memory、Task System、Background Tasks、Cron Scheduler、Agent Teams、MCP、Integrated Harness、Workflow Runtime、Goal Loop。
+> 主要已知边界：MCP 当前以进程内模拟 transport 为主；Workflow 目前注册示例流程，尚无动态插件式 registry；后台任务、Cron 与团队事件受当前 CLI 生命周期影响；长期交互式 Lead 和生产级运行保障仍需增强。详见各课程末尾的“当前限制/边界”。
+
+本项目依照 `learn-claude-code` 的 s01–s17 学习主题独立实现，参考其概念和实验，不复制其代码。本文保留了早期课程过程记录；若早期章节中的阶段描述与本状态摘要冲突，以本摘要及后续课程记录为准。
 
 ## 0. 文档目的
 

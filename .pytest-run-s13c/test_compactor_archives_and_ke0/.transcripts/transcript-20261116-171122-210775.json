@@ -1,0 +1,38 @@
+[
+  {
+    "role": "user",
+    "content": "goal"
+  },
+  {
+    "role": "assistant",
+    "content": "step 0"
+  },
+  {
+    "role": "assistant",
+    "content": "step 1"
+  },
+  {
+    "role": "assistant",
+    "content": "step 2"
+  },
+  {
+    "role": "assistant",
+    "content": "step 3"
+  },
+  {
+    "role": "assistant",
+    "content": "step 4"
+  },
+  {
+    "role": "assistant",
+    "content": "step 5"
+  },
+  {
+    "role": "assistant",
+    "content": "step 6"
+  },
+  {
+    "role": "assistant",
+    "content": "step 7"
+  }
+]

@@ -1,0 +1,63 @@
+{
+  "run_id": "run_0976dce84bdf",
+  "workflow": "review-changes",
+  "args": {
+    "changes": "a"
+  },
+  "status": "completed",
+  "phase": "Summary",
+  "progress": [
+    {
+      "type": "phase",
+      "title": "Review"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "started"
+    },
+    {
+      "type": "agent",
+      "label": "review:correctness",
+      "status": "completed"
+    },
+    {
+      "type": "agent",
+      "label": "review:security",
+      "status": "completed"
+    },
+    {
+      "type": "agent",
+      "label": "review:tests",
+      "status": "completed"
+    },
+    {
+      "type": "phase",
+      "title": "Summary"
+    },
+    {
+      "type": "log",
+      "message": "Collected 0 findings across 3 review dimensions"
+    }
+  ],
+  "result": {
+    "findings": [],
+    "dimensions": [
+      "correctness",
+      "security",
+      "tests"
+    ]
+  },
+  "error": null,
+  "agent_calls": 3
+}
