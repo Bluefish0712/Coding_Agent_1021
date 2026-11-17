@@ -2364,3 +2364,101 @@ MCP error: TypeError: ...
 - 当前连接状态只存在本次 Agent 进程中。
 
 这些属于 transport 和宿主集成问题，下一阶段再处理，不影响本课对工具发现、命名、注册、调用和授权边界的学习。
+## 30. 第十七课：Integrated Harness（s15）
+
+### 30.1 本课目标
+
+s15 不再增加一个孤立功能，而是把前面各课组件集中到 `AgentHarness`。以前 `cli.py` 负责创建 DeepSeekClient、Skills、Memory、Tasks、Cron、Teams 和 MCP；现在这些组件由 `harness.py` 统一拥有和关闭。
+
+### 30.2 AgentHarness 的职责
+
+`AgentHarness` 是 Lead Agent 的运行时容器，负责：
+
+- 创建 DeepSeekClient；
+- 初始化 SkillLoader、MemoryStore 和 TaskStore；
+- 初始化 CronScheduler、TeamRuntime 和 MCPManager；
+- 组装包含 memory、skills、workspace、运行时能力的 system prompt；
+- 创建带有全部工具的 AgentLoop；
+- 在退出时统一停止队友、停止 scheduler、关闭模型客户端。
+
+### 30.3 为什么要从 CLI 抽离
+
+如果所有初始化都写在 CLI 中，未来增加组件时会不断变成：
+
+```text
+cli.py 负责配置、创建、连接、启动、异常清理
+```
+
+这会让命令行入口变成难以测试的“大函数”。现在变成：
+
+```text
+CLI：解析参数和打印结果
+Harness：组装运行时
+AgentLoop：执行模型循环
+各组件：提供具体能力
+```
+
+这是 s15 的核心思想：多种机制，一个统一 Harness。
+
+### 30.4 `build_agent`
+
+`build_agent(prompt)` 根据本次请求生成 system prompt，并创建完整 AgentLoop。system prompt 包含：
+
+- Agent 身份和工作区说明；
+- skills catalog；
+- 与当前请求相关的 memory；
+- tasks、background、cron、teams 和 MCP 已启用的运行时说明。
+
+AgentLoop 仍然只有一个核心循环：
+
+```text
+注入 team/background/cron 事件
+  ↓
+context prepare
+  ↓
+DeepSeek
+  ↓
+ToolRegistry / MCP / background handler
+  ↓
+tool result 回到 messages
+  ↓
+下一轮
+```
+
+### 30.5 上下文中的组件位置
+
+| 位置 | 组件 |
+|---|---|
+| system prompt | skills、memory、workspace、运行时能力 |
+| 每轮模型调用前 | team events、background notifications、cron prompts、context compaction |
+| 模型调用时 | DeepSeek、当前 ToolRegistry schema |
+| 工具执行前 | PermissionPolicy 和现有 hooks |
+| 工具执行中 | 本地工具、Task、Team、Cron、MCP、Background |
+| 工具执行后 | tool result 回 messages |
+| Harness 退出 | shutdown team、stop cron、close client |
+
+### 30.6 资源生命周期
+
+现在使用上下文管理器：
+
+```python
+with AgentHarness(...) as harness:
+    answer = harness.build_agent(prompt).run(prompt)
+```
+
+退出时统一调用 `close()`。即使后续 AgentLoop 抛出异常，也能执行资源清理。这比 CLI 中依次手写关闭逻辑更安全。
+
+### 30.7 s14 到 s15 的变化
+
+| s14 | s15 |
+|---|---|
+| MCP 独立接入 | MCP 与所有本地能力共用 Harness |
+| CLI 分散创建组件 | AgentHarness 统一创建和销毁 |
+| system prompt 主要是基础说明 | 加入 skills、memory、workspace 和运行时能力 |
+| 单独关注动态工具 | 统一工具池、事件注入、权限和生命周期 |
+
+### 30.8 当前项目的实际边界
+
+本课完成了集成结构，但没有假装所有机制都已经达到参考项目的完整生产级实现。当前项目已经统一拥有前面各课组件；后台、cron、team 事件仍受当前一次性 CLI 生命周期限制，真实 MCP transport 和长期交互式 Lead 仍是后续增强方向。
+
+本次回归测试结果：`48 passed`。
