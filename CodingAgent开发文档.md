@@ -7,6 +7,8 @@
 > 核心模块：Agent Loop、工具注册与调用、权限与 Hooks、Todo、Subagent、Skills、上下文压缩、Memory、Task System、Background Tasks、Cron Scheduler、Agent Teams、MCP、Integrated Harness、Workflow Runtime、Goal Loop。
 > 主要已知边界：MCP 当前以进程内模拟 transport 为主；Workflow 目前注册示例流程，尚无动态插件式 registry；后台任务、Cron 与团队事件受当前 CLI 生命周期影响；长期交互式 Lead 和生产级运行保障仍需增强。详见各课程末尾的“当前限制/边界”。
 
+> P0/P1 实践状态：已加入本地 Agent 任务数据集 runner、独立验证器、JSONL 运行记录、Recall@k/MRR 检索评测，以及项目知识搜索工具。当前评测基线使用离线脚本模型和少量固定样本；一次真实 DeepSeek 只读冒烟任务曾达到轮数上限，结果已按 `turn_limit` 记录，不能视为通过。RAG 当前是无外部依赖的词法 + 确定性特征检索原型，后续仍需扩充数据集、增量索引验证和 embedding 对照实验。
+
 本项目依照 `learn-claude-code` 的 s01–s17 学习主题独立实现，参考其概念和实验，不复制其代码。本文保留了早期课程过程记录；若早期章节中的阶段描述与本状态摘要冲突，以本摘要及后续课程记录为准。
 
 ## 0. 文档目的

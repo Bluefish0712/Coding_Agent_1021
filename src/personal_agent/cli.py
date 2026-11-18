@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -57,6 +58,17 @@ def main() -> int:
     chat_parser.add_argument("prompt")
     agent_parser = subparsers.add_parser("agent", help="run the first tool-enabled agent loop")
     agent_parser.add_argument("prompt")
+    eval_parser = subparsers.add_parser("eval", help="run or inspect the local Agent task dataset")
+    eval_parser.add_argument("--dataset", type=Path, default=Path("evals/coding_agent_smoke.json"))
+    eval_parser.add_argument("--dry-run", action="store_true", help="validate fixtures and checks without calling a model")
+    eval_parser.add_argument("--real-model", action="store_true", help="explicitly run with the configured DeepSeek API")
+    eval_parser.add_argument("--task", action="append", dest="task_ids", help="run only this task id; repeatable")
+    eval_parser.add_argument("--repeats", type=int, default=1)
+    eval_parser.add_argument("--output", type=Path, default=Path(".agent-data/evals/results.jsonl"))
+    eval_parser.add_argument("--workspace", type=Path, default=Path.cwd())
+    eval_parser.add_argument("--temp-root", type=Path, default=Path(".agent-data/eval-tmp"))
+    eval_parser.add_argument("--retrieval-dataset", type=Path, help="run retrieval Recall@k/MRR evaluation instead of Agent tasks")
+    eval_parser.add_argument("--top-k", type=int, default=5)
     args = parser.parse_args()
     if args.command == "doctor":
         return doctor()
@@ -64,6 +76,27 @@ def main() -> int:
         return chat(args.prompt)
     if args.command == "agent":
         return agent(args.prompt)
+    if args.command == "eval":
+        from .evals import dry_run, evaluate_retrieval, run_dataset, summarize
+
+        if args.retrieval_dataset:
+            print(json.dumps(evaluate_retrieval(args.retrieval_dataset, workspace=args.workspace.resolve(), top_k=args.top_k), ensure_ascii=False, indent=2))
+            return 0
+
+        if args.dry_run == args.real_model:
+            raise SystemExit("Choose exactly one: --dry-run or --real-model.")
+        if args.dry_run:
+            args.temp_root.mkdir(parents=True, exist_ok=True)
+            print(json.dumps(dry_run(args.dataset, temp_root=args.temp_root.resolve()), ensure_ascii=False, indent=2))
+            return 0
+        if args.repeats < 1:
+            raise SystemExit("--repeats must be at least 1")
+        args.temp_root.mkdir(parents=True, exist_ok=True)
+        records = run_dataset(args.dataset, workspace=args.workspace.resolve(), output=args.output,
+                              settings=load_settings(), task_ids=set(args.task_ids) if args.task_ids else None,
+                              repeats=args.repeats, temp_root=args.temp_root.resolve())
+        print(json.dumps(summarize(records), ensure_ascii=False, indent=2))
+        return 0 if all(record["status"] == "passed" for record in records) else 1
     return 2
 
 

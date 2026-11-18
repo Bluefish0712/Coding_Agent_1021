@@ -30,10 +30,11 @@ from .tools.mcp import create_mcp_tools
 from .workflow import WorkflowRuntime
 from .tools.workflow import create_workflow_tools
 from .goal import GoalController, GoalEvaluator
+from .knowledge import ProjectKnowledgeIndex
 
 
 class AgentLoop:
-    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None, memory_store: MemoryStore | None = None, task_store: TaskStore | None = None, scheduler: CronScheduler | None = None, team_runtime: TeamRuntime | None = None, mcp_manager: MCPManager | None = None, workflow_runtime: WorkflowRuntime | None = None, goal_controller: GoalController | None = None):
+    def __init__(self, client: DeepSeekClient, *, max_turns: int = 8, registry: ToolRegistry | None = None, workspace: Path | None = None, permission_policy: PermissionPolicy | None = None, before_hooks=None, after_hooks=None, error_hooks=None, include_subagent: bool = True, skill_loader: SkillLoader | None = None, system_prompt: str | None = None, compactor: ContextCompactor | None = None, memory_store: MemoryStore | None = None, task_store: TaskStore | None = None, scheduler: CronScheduler | None = None, team_runtime: TeamRuntime | None = None, mcp_manager: MCPManager | None = None, workflow_runtime: WorkflowRuntime | None = None, goal_controller: GoalController | None = None, knowledge_index: ProjectKnowledgeIndex | None = None):
         if max_turns < 1:
             raise ValueError("max_turns must be at least 1")
         self.client = client
@@ -48,6 +49,9 @@ class AgentLoop:
         self.goal = goal_controller or GoalController(GoalEvaluator(client))
         default_tools = [ToolDefinition(name="get_time", schema=GET_TIME_SCHEMA, handler=get_time)]
         default_tools.extend(create_filesystem_tools(workspace or Path.cwd()))
+        if knowledge_index is not None:
+            from .tools.knowledge import create_knowledge_tools
+            default_tools.extend(create_knowledge_tools(knowledge_index))
         default_tools.extend(create_command_tools(workspace or Path.cwd(), self.background))
         todo_tools, _ = create_todo_tools()
         default_tools.extend(todo_tools)

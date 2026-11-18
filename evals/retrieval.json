@@ -1,0 +1,7 @@
+[
+  {"id": "agent-loop", "query": "agent_loop.py main cycle tool calls and observation results", "relevant_paths": ["src/personal_agent/agent_loop.py"]},
+  {"id": "permissions", "query": "permission approval callback denies a risky tool by default", "relevant_paths": ["src/personal_agent/tools/permissions.py", "tests/test_permissions_and_hooks.py"]},
+  {"id": "memory-search", "query": "keyword based durable memory search implementation", "relevant_paths": ["src/personal_agent/memory.py", "tests/test_memory.py"]},
+  {"id": "workflow-journal", "query": "workflow journal append records and caches agent calls", "relevant_paths": ["src/personal_agent/workflow.py", "tests/test_workflow.py"]},
+  {"id": "mcp-simulation", "query": "in process simulated MCP client lists tools and invokes handler", "relevant_paths": ["src/personal_agent/mcp.py", "tests/test_mcp.py"]}
+]

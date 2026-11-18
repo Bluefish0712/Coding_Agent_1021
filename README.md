@@ -30,3 +30,20 @@ python -m personal_agent.cli chat "用一句话说明什么是 Agent Loop"
 
 详细阶段记录、架构说明和已知限制见 [CodingAgent开发文档.md](./CodingAgent开发文档.md)。
 
+后续优化路线、任务数据集评测和项目知识检索（RAG）入口见 [Agent项目优化路线图.md](./Agent项目优化路线图.md)。
+
+### 本地评测与知识检索
+
+```powershell
+# 离线检查评测集结构，不访问模型 API
+python -m personal_agent.cli eval --dry-run
+
+# 明确选择真实模型后运行任务评测（会调用 DeepSeek API）
+python -m personal_agent.cli eval --real-model --task python-verifier --repeats 3
+
+# 对当前项目代码/文档运行检索 Recall@k 与 MRR 评测
+python -m personal_agent.cli eval --retrieval-dataset evals/retrieval.json --top-k 5
+```
+
+Agent 任务评测结果默认追加到 `.agent-data/evals/results.jsonl`；该目录作为本地运行数据，不应提交。真实模型评测需配置 `.env`，并会产生 API 调用和费用。当前知识检索使用本地稀疏检索与确定性特征哈希相似度基线，不是神经 embedding 服务；先用检索评测判断收益，再考虑接入 embedding。
+

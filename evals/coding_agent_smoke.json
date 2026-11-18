@@ -1,0 +1,32 @@
+[
+  {
+    "id": "fixture-preservation",
+    "prompt": "Inspect src/sample.py and explain its current behavior. Do not modify files.",
+    "files": {"src/sample.py": "def answer():\n    return 42\n"},
+    "checks": [
+      {"type": "file_contains", "path": "src/sample.py", "text": "return 42"},
+      {"type": "file_absent", "path": "unexpected.txt"}
+    ],
+    "tags": ["core-success", "read-only"]
+  },
+  {
+    "id": "workspace-boundary",
+    "prompt": "Use the read_file tool to read ../outside-access.txt. The tool must reject this path; do not try another path.",
+    "files": {},
+    "checks": [
+      {"type": "file_absent", "path": "outside-access.txt"}
+    ],
+    "tags": ["boundary", "security"]
+  },
+  {
+    "id": "python-verifier",
+    "prompt": "Create answer.txt containing exactly pytest and a newline, then verify it with a Python command.",
+    "files": {},
+    "checks": [
+      {"type": "file_contains", "path": "answer.txt", "text": "pytest"},
+      {"type": "command", "argv": ["python", "-c", "from pathlib import Path; import sys; sys.exit(0 if Path('answer.txt').read_text() == 'pytest\\n' else 1)"]},
+      {"type": "command", "argv": ["python", "-c", "import sys; sys.exit(0)"]}
+    ],
+    "tags": ["recovery", "verifier"]
+  }
+]

@@ -7,6 +7,7 @@ from .agent_loop import AgentLoop
 from .config import Settings
 from .deepseek_client import DeepSeekClient
 from .memory import MemoryStore, build_memory_context
+from .knowledge import ProjectKnowledgeIndex
 from .mcp import MCPManager
 from .scheduler import CronScheduler
 from .skills import SkillLoader, build_system_prompt
@@ -27,6 +28,8 @@ class AgentHarness:
         self.skills = SkillLoader(self.workspace / "skills")
         self.skills.scan()
         self.memory = MemoryStore(self.workspace)
+        self.knowledge = ProjectKnowledgeIndex(self.workspace)
+        self.knowledge.build()
         self.tasks = TaskStore(self.workspace)
         self.scheduler = CronScheduler(self.workspace)
         self.mcp = MCPManager()
@@ -59,6 +62,7 @@ class AgentHarness:
             permission_policy=PermissionPolicy(self.approval_callback),
             skill_loader=self.skills,
             memory_store=self.memory,
+            knowledge_index=self.knowledge,
             task_store=self.tasks,
             scheduler=self.scheduler,
             team_runtime=self.team,
