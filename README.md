@@ -30,7 +30,7 @@ python -m personal_agent.cli chat "用一句话说明什么是 Agent Loop"
 
 详细阶段记录、架构说明和已知限制见 [CodingAgent开发文档.md](./CodingAgent开发文档.md)。
 
-后续优化路线、任务数据集评测和项目知识检索（RAG）入口见 [Agent项目优化路线图.md](./Agent项目优化路线图.md)。
+后续优化路线、s18 数据集评测和 s19 项目知识检索（RAG）入口见 [Agent项目优化路线图.md](./Agent项目优化路线图.md)。
 
 ### 本地评测与知识检索
 

@@ -4,7 +4,7 @@
 > 参考项目：`D:\GITHUBPROJECTS\learn-claude-code`  
 > 当前模型：DeepSeek API / `deepseek-flash`  
 > 当前进度：s01–s17 学习主线已完成；对应核心组件已逐步实现并有模块测试。当前工作进入实现边界核对、可靠性与评测完善阶段，不表示所有能力均已达到生产级。
-> 核心模块：Agent Loop、工具注册与调用、权限与 Hooks、Todo、Subagent、Skills、上下文压缩、Memory、Task System、Background Tasks、Cron Scheduler、Agent Teams、MCP、Integrated Harness、Workflow Runtime、Goal Loop。
+> 核心模块：Agent Loop、工具注册与调用、权限与 Hooks、Todo、Subagent、Skills、上下文压缩、Memory、Task System、Background Tasks、Cron Scheduler、Agent Teams、MCP、Integrated Harness、Workflow Runtime、Goal Loop；后续课程为 s18 数据集测试和 s19 RAG。
 > 主要已知边界：MCP 当前以进程内模拟 transport 为主；Workflow 目前注册示例流程，尚无动态插件式 registry；后台任务、Cron 与团队事件受当前 CLI 生命周期影响；长期交互式 Lead 和生产级运行保障仍需增强。详见各课程末尾的“当前限制/边界”。
 
 > P0/P1 实践状态：已加入本地 Agent 任务数据集 runner、独立验证器、JSONL 运行记录、Recall@k/MRR 检索评测，以及项目知识搜索工具。当前评测基线使用离线脚本模型和少量固定样本；一次真实 DeepSeek 只读冒烟任务曾达到轮数上限，结果已按 `turn_limit` 记录，不能视为通过。RAG 当前是无外部依赖的词法 + 确定性特征检索原型，后续仍需扩充数据集、增量索引验证和 embedding 对照实验。
@@ -2666,3 +2666,215 @@ Workflow 回答“这类工作按哪些步骤执行”；Goal Loop 回答“这�
 - CLI 是一次性调用，Goal 状态仅存在当前 AgentLoop 内存中；跨进程恢复需要宿主保存并传回 `goal_status`。
 - 当前后台工作未完成时会 defer，但一次性 CLI 没有长期等待输入/通知的会话循环，因此更适合前台同步验证任务。
 - Goal Evaluator 依赖对话中的工具结果证据；它不是独立测试执行器，也不能证明对话中没有呈现的外部事实。
+
+## 33. 第十八阶段：Agent 数据集测试（s18）
+
+### 33.1 本课目标
+
+s01–s17 主要学习的是“Agent 如何运行”。s18 学习的是“怎样判断 Agent 运行得好不好”。这是一个很容易混淆、但非常关键的区别：
+
+- 单元测试检查某个函数是否按预期工作；
+- 数据集测试检查 Agent 能否从初始环境出发，完成一项真实任务；
+- 人工试用只能说明某一次体验不错，不能说明系统稳定。
+
+本课把一组固定任务、干净初始环境、独立验证器和结构化运行记录组合成一个可重复的评测闭环。
+
+```text
+评测任务
+  → 创建隔离 workspace
+  → 注入初始文件
+  → 启动 AgentLoop
+  → 执行工具和模型调用
+  → 验证真实文件/命令/状态
+  → 保存 JSONL 结果
+  → 汇总成功率、耗时、工具调用和失败原因
+```
+
+### 33.2 为什么不能只看 Agent 的最终回答
+
+Agent 说“已经完成”只是一个文本声明。它可能没有真正写文件、测试可能失败，或者修改了不允许修改的路径。因此 s18 把“模型回答”和“任务是否通过”分开：模型负责行动，验证器负责判定。
+
+例如任务要求“创建 `answer.txt` 并写入 `pytest`”。即使 Agent 最后返回“已完成”，验证器仍然要实际检查：
+
+1. `answer.txt` 是否存在；
+2. 文件内容是否包含 `pytest`；
+3. 约定的命令是否返回退出码 0；
+4. 是否产生了越界或额外文件。
+
+这就是“外部证据优先于自我描述”。
+
+### 33.3 数据集测试中的五个角色
+
+#### 33.3.1 任务样本
+
+一个样本描述一项可重复任务。当前样本位于 `evals/coding_agent_smoke.json`，形式如下：
+
+```json
+{
+  "id": "python-verifier",
+  "prompt": "Create answer.txt containing exactly pytest and a newline, then verify it with a Python command.",
+  "files": {},
+  "checks": [
+    {"type": "file_contains", "path": "answer.txt", "text": "pytest"},
+    {"type": "command", "argv": ["python", "-c", "..."]}
+  ],
+  "tags": ["recovery", "verifier"]
+}
+```
+
+字段含义：
+
+- `id`：任务唯一编号，不能重复；
+- `prompt`：真正发送给 Agent 的用户请求；
+- `files`：运行开始前要放入隔离 workspace 的初始文件；
+- `checks`：任务完成后由程序执行的客观检查；
+- `tags`：给任务分类，例如 `security`、`read-only`、`recovery`；
+- `max_turns` 和 `timeout_seconds`：限制模型轮数和时间，防止失败任务无限运行。
+
+初学者可以把它理解成考试题 JSON：`prompt` 是题目，`files` 是考场材料，`checks` 是标准答案和判分规则。
+
+#### 33.3.2 隔离 workspace
+
+每次运行都会复制一个临时工作区。Agent 可以修改临时副本，但不会污染你的主项目。运行结束后，评测器检查这个副本并删除它。
+
+隔离解决三个问题：
+
+- 每次从同样的起点开始，结果才可以比较；
+- 失败任务不会破坏开发中的源代码；
+- 可以安全地重复运行同一个任务。
+
+当前 runner 会排除 `.git`、`.venv`、`.env`、`.agent-data`、测试缓存等目录。API key 不会被复制到评测 workspace。
+
+#### 33.3.3 Agent runner
+
+`src/personal_agent/evals.py` 中的 `run_dataset()` 负责循环读取任务、建立隔离目录、调用 `AgentLoop`、执行验证器和写入结果。真实模型模式需要显式传入 `--real-model`，普通 dry-run 不会访问网络。
+
+当前还提供脚本化模型客户端。它不是一个“假装通过”的捷径，而是用来稳定测试 runner 本身：可以预先写好工具调用响应，验证 AgentLoop 是否真的执行了工具，以及验证器能否识别缺少产物的失败。
+
+#### 33.3.4 独立验证器
+
+当前提供三种基础检查：
+
+- `file_contains`：文件存在并包含指定文本；
+- `file_absent`：指定路径不能存在；
+- `command`：以参数数组执行命令，并检查退出码。
+
+验证器必须独立于 Agent 的自然语言回答。`command` 使用 `shell=False` 和参数数组执行，避免把任务内容直接拼成 Shell 字符串。
+
+验证器不是越多越好，而是要恰好检查任务的完成条件。检查太少会“误判成功”，检查错误会“误判失败”。因此新增验证器时，必须同时给它写单元测试和失败样例。
+
+#### 33.3.5 JSONL 运行记录
+
+每次运行会追加一行 JSON 到 `.agent-data/evals/results.jsonl`。每行包括：
+
+- `run_id`、`task_id`、重复次数和模型名；
+- `status`、每个 check 的结果和错误详情；
+- 工具调用数、耗时、token usage（API 返回时）；
+- 最终回答和 diff 摘要；
+- `error_class`，例如 `turn_limit`、`timeout`、`model_or_network_error`。
+
+为什么使用 JSONL 而不是一个巨大的 JSON 数组？因为每完成一条任务就可以立即追加和读取；中途崩溃时，之前的结果仍然保留，也便于日志工具逐行处理。
+
+### 33.4 三种运行方式
+
+#### 33.4.1 dry-run：只检查数据集
+
+```powershell
+.\.venv\Scripts\python.exe -m personal_agent.cli eval --dry-run
+```
+
+它会检查任务 ID 是否重复、fixture 路径是否越界、验证器类型是否受支持，不调用模型。输出中的 `status: valid` 只表示“样本格式正确”，不表示 Agent 已经完成任务。
+
+#### 33.4.2 离线脚本测试
+
+单元测试中的脚本客户端会返回预先安排的工具调用。例如先调用 `write_file`，再返回最终文本。它用于验证评测框架和 AgentLoop 的连接，不产生 API 费用。
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_evals.py -q --basetemp=.agent-data\test-tmp
+```
+
+#### 33.4.3 真实模型评测
+
+```powershell
+.\.venv\Scripts\python.exe -m personal_agent.cli eval `
+  --real-model `
+  --task python-verifier `
+  --repeats 1
+```
+
+真实评测会产生 API 调用。初学阶段建议一次只跑一个任务、一次只重复一遍，并把 `max_turns` 设得合理。只有当样本和验证器确认正确后，再做多次重复。
+
+### 33.5 如何理解评测指标
+
+最基础的指标是：
+
+```text
+pass_rate = 通过的运行次数 / 总运行次数
+```
+
+如果同一任务跑 3 次，成功 2 次，那么这个任务的通过率是 2/3。它说明 Agent 有时能完成，但还不稳定。
+
+- **Pass@k**：k 次尝试中至少成功一次，偏向衡量能力上限；
+- **Pass^k**：连续 k 次都成功，更接近生产可靠性；
+- **Recall@k**：知识检索中，正确文件是否出现在前 k 个结果；
+- **MRR**：第一个正确结果排名越靠前，分数越高；
+- **耗时和成本**：成功但耗时过长、调用过多，也可能不适合实际使用。
+
+不要只看总体平均值。例如 20 个任务中 19 个简单任务成功，1 个危险任务失败，平均成功率仍可能很高，但安全风险不能被平均数隐藏。因此必须同时查看按标签、按任务和按错误类型的结果。
+
+### 33.6 当前 P0 的测试结果和真实发现
+
+当前项目包含 3 个 smoke 任务、脚本化 AgentLoop 测试以及独立验证器测试。最近一次全量测试结果为：
+
+```text
+62 passed
+```
+
+曾经运行过一次真实 DeepSeek 只读任务。API 连接成功，但 Agent 在 8 轮内没有结束，最终被记录为 `turn_limit` 失败。这不是“测试坏了”，而是评测发现了一个真实系统问题：只读任务的停止条件、工具选择或提示设计仍需改进。
+
+正确的学习方式是保留这次失败，分析轨迹，再增加一个回归任务；不能删除失败样本来提高通过率。
+
+### 33.7 如何设计更好的数据集
+
+建议逐步扩展到 20–30 个任务，并分成几类：
+
+1. **Core Success**：读取代码、创建文件、修改小 bug、运行测试；
+2. **Boundary/Security**：越界路径、危险命令、禁止修改 `.env`；
+3. **Recovery**：测试失败后修复、工具超时后停止或重试；
+4. **Context**：长上下文后仍保留用户约束；
+5. **Completion**：没有证据时不能声称完成；
+6. **Retention**：已有能力不能因为新改动而退化。
+
+每新增一个任务，都要回答三个问题：起始环境是否固定？完成条件是否可以由程序检查？失败后能否根据轨迹解释原因？如果答案是否定的，任务还不适合进入正式回归集。
+
+### 33.8 s18 自测清单
+
+```powershell
+# 1. 检查任务格式
+.\.venv\Scripts\python.exe -m personal_agent.cli eval --dry-run
+
+# 2. 运行 s18 专项测试
+.\.venv\Scripts\python.exe -m pytest tests\test_evals.py -q --basetemp=.agent-data\s18-test-tmp
+
+# 3. 运行全部回归测试
+.\.venv\Scripts\python.exe -m pytest -q --basetemp=.agent-data\all-test-tmp
+
+# 4. 查看 JSONL 结果
+Get-Content .agent-data\evals\results.jsonl
+```
+
+### 33.9 当前边界与下一步
+
+- 当前 smoke 数据集只有少量任务，还不能代表完整 Coding Agent 能力；
+- 真实模型评测结果具有随机性，需要固定模型、预算和重复次数；
+- 当前 runner 记录 token usage，但费用换算还没有绑定具体价格表；
+- 当前验证器还没有完整的 Git diff 允许列表、视觉状态验证和人工评分；
+- 当前任务超时主要依靠模型客户端超时和最大轮数，长时间工具进程的强制取消还需加强；
+- s18 的下一步应是扩充真实任务集、补失败归因和回归报告；完成后再进入 s19 RAG 的 embedding 对照实验。
+
+### 33.10 本课涉及的代码
+
+- `src/personal_agent/evals.py`：任务加载、隔离运行、验证器、JSONL 结果和指标汇总；
+- `tests/test_evals.py`：数据集校验、隔离性、工具调用、完成验证和检索评测测试；
+- `evals/coding_agent_smoke.json`：Agent 任务样本；
+- `README.md`：命令行使用说明。
